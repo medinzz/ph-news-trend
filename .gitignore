@@ -3,3 +3,4 @@ env/
 *.py[cod]
 *$py.class
 
+util/const.py
