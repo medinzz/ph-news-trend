@@ -1,8 +1,16 @@
 import requests
 import json
-from util.logger import setup_logger
-from util.const import news_api_key
+from google import genai
 
+# Local libraries
+from util.logger import setup_logger
+from util.const import (
+    news_api_key, 
+    
+    #gemini constants
+    gemini_api_key,
+    gemini_model
+)
 
 logger = setup_logger()
 
@@ -30,3 +38,13 @@ def get_news(query='tech'):
     else:
         logger.error('Error:', response.json())
     return articles
+
+
+def get_gemini_output(prompt):
+    client = genai.Client(api_key=gemini_api_key)
+    response = client.models.generate_content(
+        model=gemini_model,
+        contents=prompt
+    )
+    return response
+
