@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 
-class InquirerIndexSpider(scrapy.Spider):
+class InquirerArticlesSpider(scrapy.Spider):
     name = "inquirer_by_date"
     allowed_domains = ["inquirer.net"]
 
@@ -54,7 +54,7 @@ def refresh_news_articles():
         })
 
     process.crawl(
-        InquirerIndexSpider, 
+        InquirerArticlesSpider, 
         start_date="2025-04-05",
         end_date="2025-04-08")
     

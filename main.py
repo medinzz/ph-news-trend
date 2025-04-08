@@ -1,3 +1,3 @@
-from news.inquirer import refresh_news_articles
+from news.crawler import refresh_news_articles
 
 refresh_news_articles()
