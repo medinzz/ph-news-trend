@@ -46,9 +46,10 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
 
 class InquirerArticleSpider(scrapy.Spider):
     name = 'inquirer_article'
-    start_urls = [
-        'https://newsinfo.inquirer.net/2021698/ecowaste-to-nazarene-devotees-keep-our-environment-clean'
-    ]
+    
+    def __init__(self, urls, **kwargs):
+        super().__init__(**kwargs)
+        self.start_urls = urls
 
     def parse(self, response):
         title = response.css('h1.entry-title::text').get()
