@@ -10,7 +10,7 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
     name = "inquirer_by_date"
     allowed_domains = ["inquirer.net"]
 
-    def __init__(self, start_date="2025-04-05", end_date=None, **kwargs):
+    def __init__(self, start_date="2025-01-01", end_date=None, **kwargs):
         super().__init__(**kwargs)
         self.start_date = datetime.strptime(start_date, "%Y-%m-%d")
         self.end_date = datetime.strptime(
@@ -44,7 +44,37 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
             json.dump(self.news_articles, f)
 
 
-def refresh_news_articles():
+class InquirerArticleSpider(scrapy.Spider):
+    name = 'inquirer_article'
+    start_urls = [
+        'https://newsinfo.inquirer.net/2021698/ecowaste-to-nazarene-devotees-keep-our-environment-clean'
+    ]
+
+    def parse(self, response):
+        title = response.css('h1.entry-title::text').get()
+
+        author = response.css('div#art_author::attr(data-byline-strips)').get(default='No author')
+
+        # Extract the date from the <div id='art_plat'> tag
+        date_time = response.css('div#art_plat::text').get()
+        # Clean up and extract the date part (remove the source text part)
+
+        paragraphs = response.css('div#article_content p::text').getall()
+
+        # Join all the paragraph texts into a single string
+        body = '\n'.join([p.strip() for p in paragraphs if p.strip()])
+
+        self.logger.info(f'Body: {body}')
+        yield {
+            'url': response.url,
+            'title': title,
+            'author': author,
+            'date_time': date_time,
+            'body': body
+        }
+
+
+def refresh_news_articles(start_date="2025-01-01", end_date="2025-04-09"):
     process = CrawlerProcess(
         settings={
             "USER_AGENT": "Mozilla/5.0",
@@ -54,9 +84,8 @@ def refresh_news_articles():
         })
 
     process.crawl(
-        InquirerArticlesLinksSpider, 
-        start_date="2025-04-05",
-        end_date="2025-04-08")
-    
-    process.start()
+        InquirerArticlesLinksSpider,
+        start_date=start_date,
+        end_date=end_date)
 
+    process.start()
