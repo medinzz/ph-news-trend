@@ -5,11 +5,11 @@ from google import genai
 # Local libraries
 from util.logger import setup_logger
 from util.const import (
-    news_api_key, 
+    NEWS_API_KEY, 
     
     #gemini constants
-    gemini_api_key,
-    gemini_model
+    GEMINI_API_KEY,
+    GEMINI_MODEL
 )
 
 logger = setup_logger()
@@ -19,7 +19,7 @@ def get_news(query='tech'):
     url = 'https://newsapi.org/v2/everything'
 
     params = {
-        'apiKey': news_api_key,
+        'apiKey': NEWS_API_KEY,
         'q': query,
         'searchIn': 'title',
         'sortBy':'popularity'
@@ -41,9 +41,9 @@ def get_news(query='tech'):
 
 
 def get_gemini_output(prompt):
-    client = genai.Client(api_key=gemini_api_key)
+    client = genai.Client(api_key=GEMINI_API_KEY)
     response = client.models.generate_content(
-        model=gemini_model,
+        model=GEMINI_MODEL,
         contents=prompt
     )
     return response
