@@ -5,23 +5,53 @@ import json
 from collections import defaultdict
 from datetime import datetime, timedelta
 
+from util.const import dt_format
+
 
 class InquirerArticlesLinksSpider(scrapy.Spider):
-    name = "inquirer_by_date"
-    allowed_domains = ["inquirer.net"]
+    '''
+    InquirerArticlesLinksSpider is a Scrapy spider designed to scrape article links 
+    from the Philippine Daily Inquirer website (inquirer.net) based on a specified date range.
 
-    def __init__(self, start_date="2025-01-01", end_date=None, **kwargs):
+    Attributes:
+        name (str): The name of the spider.
+        allowed_domains (list): A list of domains that the spider is allowed to crawl.
+        start_date (datetime): The starting date for scraping articles.
+        end_date (datetime): The ending date for scraping articles.
+        news_articles (defaultdict): A nested dictionary to store scraped article links 
+            categorized by date and category.
+
+    Methods:
+        __init__(start_date='2025-01-01', end_date=None, **kwargs):
+            Initializes the spider with a start date and an optional end date.
+        
+        start_requests():
+            Generates initial requests for each date in the specified range, 
+            targeting the article index page for that date.
+
+        parse(response):
+            Parses the response from the article index page, extracting article links 
+            categorized by their respective sections.
+
+        closed(reason):
+            Called when the spider finishes its execution. Saves the scraped article 
+            links to a JSON file named 'news_articles.json'.
+    '''
+    name = 'inquirer_by_date'
+    allowed_domains = ['inquirer.net']
+
+    def __init__(self, start_date: str = '2025-01-01', end_date: str = None, **kwargs):
         super().__init__(**kwargs)
-        self.start_date = datetime.strptime(start_date, "%Y-%m-%d")
+        self.start_date = datetime.strptime(start_date, dt_format)
         self.end_date = datetime.strptime(
-            end_date, "%Y-%m-%d") if end_date else self.start_date
+            end_date, dt_format) if end_date else self.start_date
         self.news_articles = defaultdict(lambda: defaultdict(list))
 
     def start_requests(self):
         current_date = self.start_date
         while current_date <= self.end_date:
-            url = f"https://www.inquirer.net/article-index/?d={current_date.strftime('%Y-%m-%d')}"
-            yield scrapy.Request(url=url, callback=self.parse, meta={'current_date': current_date.strftime('%Y-%m-%d')})
+            url = f'https://www.inquirer.net/article-index/?d={current_date.strftime(dt_format)}'
+            yield scrapy.Request(url=url, callback=self.parse, meta={'current_date': current_date.strftime(dt_format)})
             current_date += timedelta(days=1)
 
     def parse(self, response):
@@ -35,7 +65,7 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
             # extract all hrefs from <a> inside <li>
             links = ul.css('li a::attr(href)').getall()
             for link in links:
-                if link.startswith("https://"):
+                if link.startswith('https://'):
                     self.news_articles[category][response.meta['current_date']].append(
                         link)
 
@@ -45,11 +75,40 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
 
 
 class InquirerArticleSpider(scrapy.Spider):
+    '''
+    InquirerArticleSpider is a Scrapy spider designed to scrape articles from the Inquirer website.
+    Attributes:
+        name (str): The name of the spider, used by Scrapy to identify it.
+        start_urls (list): A list of URLs to start scraping from, initialized via the 'urls' parameter.
+    Methods:
+        __init__(urls, **kwargs):
+            Initializes the spider with a list of URLs or a single URL.
+            Args:
+                urls (str or list): A single URL as a string or a list of URLs to scrape.
+            Raises:
+                ValueError: If the 'urls' parameter is not a string or a list of strings.
+        parse(response):
+            Parses the response from the given URL to extract article details.
+            Args:
+                response (scrapy.http.Response): The response object containing the HTML content of the page.
+            Yields:
+                dict: A dictionary containing the following keys:
+                    - 'url': The URL of the article.
+                    - 'title': The title of the article.
+                    - 'author': The author of the article (default is 'No author' if not found).
+                    - 'date_time': The date and time of the article (raw text from the page).
+                    - 'body': The main content of the article, concatenated into a single string.
+    '''
     name = 'inquirer_article'
     
     def __init__(self, urls, **kwargs):
         super().__init__(**kwargs)
-        self.start_urls = urls
+        if isinstance(urls, str):
+            self.start_urls = [urls]
+        elif isinstance(urls, list):
+            self.start_urls = urls
+        else:
+            raise ValueError('The `urls` parameter must be a string or a list of strings.')
 
     def parse(self, response):
         title = response.css('h1.entry-title::text').get()
@@ -75,13 +134,13 @@ class InquirerArticleSpider(scrapy.Spider):
         }
 
 
-def refresh_news_articles(start_date="2025-01-01", end_date="2025-04-09"):
+def refresh_news_articles(start_date: str = '2025-01-01', end_date: str = None):
     process = CrawlerProcess(
         settings={
-            "USER_AGENT": "Mozilla/5.0",
-            "DOWNLOAD_DELAY": 1,
-            "LOG_LEVEL": "INFO",
-            "ROBOTSTXT_OBEY": True,
+            'USER_AGENT': 'Mozilla/5.0',
+            'DOWNLOAD_DELAY': 1,
+            'LOG_LEVEL': 'INFO',
+            'ROBOTSTXT_OBEY': True
         })
 
     process.crawl(
