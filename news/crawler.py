@@ -153,6 +153,18 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                 )
                 date_time = find_date_in_list(source)
 
+            # TODO: work on getting article content for these subdomains:
+            #   - lifestyle
+            #   - pop
+            #   - bandera
+            #   - cebu daily news
+
+            # article contents from <p> element.
+            paragraphs = response.css('div#article_content p::text').getall()
+
+            # Join all the paragraph texts into a single string
+            body = '\n'.join([p.strip() for p in paragraphs if p.strip()])
+
             self.news_articles.append({
                 'id': article_id,
                 'url': response.url,
@@ -223,11 +235,6 @@ class InquirerArticleSpider(scrapy.Spider):
         article_dt_format = '%I:%M %p %B %d, %Y'
         url_metadata = parse_inq_art_url(response.url)
 
-        # TODO: not going to work on the ff. categories:
-        #   - lifestyle
-        #   - pop
-        #   - bandera
-        #   - cebu daily news
         match url_metadata['subdomain']:
             case 'lifestyle':
                 title = response.css(
