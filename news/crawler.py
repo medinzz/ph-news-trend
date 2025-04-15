@@ -1,12 +1,14 @@
 import scrapy
-from scrapy.crawler import CrawlerProcess
-
 import json
+import traceback
+
+from scrapy.crawler import CrawlerProcess
 from datetime import datetime, timedelta
 
+# Local lib
 from util.tools import (
     parse_inq_art_url,
-    find_date_in_list
+    clean_article
 )
 from util.logger import setup_logger
 
@@ -76,19 +78,10 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
             for link in links:
                 if link.startswith('https://'):
                     parsed_link = parse_inq_art_url(link)
-                    if 'daily-gospel' in parsed_link['slug'] and 'cebudailynews' in parsed_link['subdomain']:
-                        continue
 
-                    # generating links data
-                    # self.news_articles.append({
-                    #     'category': category,
-                    #     'date': response.meta['current_date'],
-                    #     'article_id': parsed_link['article_id'],
-                    #     'slug': parsed_link['slug'],
-                    #     'subdomain': parsed_link['subdomain'],
-                    #     'origin': parsed_link['origin'],
-                    #     'url': link
-                    # })
+                    # Excluding daily gospel 
+                    if 'daily-gospel' in parsed_link['slug'] and parsed_link['subdomain'] == 'cebudailynews':
+                        continue
 
                     yield scrapy.Request(
                         url=link,
@@ -100,182 +93,77 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                     )
 
     def parse_article_details(self, response):
-
         try:
             url_metadata = parse_inq_art_url(response.url)
             category = response.meta.get('category')
             current_date = response.meta.get('current_date')
             article_id = f"{url_metadata['subdomain']}:{url_metadata['article_id']}:{url_metadata['slug']}"
 
+            unwanted_ids = ['billboard_article', 'article-new-featured', 'taboola-mid-article-thumbnails', 'taboola-mid-article-thumbnails-stream', 'fb-root']
+            unwanted_classes = ['.ztoop', '.sib-form', '.cdn_newsletter']
+            unwanted_elements = ['script', 'style']
+
             # Extract article details based on subdomain
             if url_metadata['subdomain'] == 'lifestyle':
-                title = response.css(
-                    'h1.elementor-heading-title::text').get(default='No title')
-                author = response.css(
-                    'div.elementor-widget-post-info ul.elementor-post-info li span.elementor-post-info__terms-list a::text'
-                ).get(default='No author')
-                date = response.css(
-                    '.elementor-post-info__item--type-date::text').get()
-                time = response.css(
-                    '.elementor-post-info__item--type-time::text').get()
-                date_time = f'{time} {date}' if time and date else 'No date'
+                debug_log.info(f"starting to process fields from {url_metadata['subdomain']}")
+                title = response.css('h1.elementor-heading-title::text').get(default='No title')
+                author = response.css('div.elementor-widget-post-info ul.elementor-post-info li span.elementor-post-info__terms-list a::text').get(default='No author')
+                article_content = response.css('div.elementor-widget-theme-post-content').get(default='Cannot extract article content')
+                                   
             elif url_metadata['subdomain'] == 'pop':
-                title = response.css(
-                    'div.single-post-banner-inner > h1::text').get()
-                author = response.css(
-                    "ul.blog-meta-list a[href*='/byline/']::text").get()
-                date_str = response.css(
-                    'ul.blog-meta-list li.dot-shape a::text').re_first(r'\d{1,2} \w+, \d{4}')
-                date_time = datetime.strptime(date_str, '%d %B, %Y')
+                debug_log.info(f"starting to process fields from {url_metadata['subdomain']}")
+                title = response.css('div.single-post-banner-inner > h1::text').get()
+                author = response.css("ul.blog-meta-list a[href*='/byline/']::text").get()
+                article_content = response.css('div#TO_target_content').get(default='Cannot extract article content')
+
             elif url_metadata['subdomain'] == 'cebudailynews':
-                title = response.css(
-                    '#landing-headline h1::text').get(
-                        default=response.css('#art-hgroup h1::text').get(default='No title'))
-                author = response.css(
-                    '#m-pd2 span::text').re_first(r'By:\s*(.+)') or response.css('.art-byline a::text').get(default='No author')
-                date_str = response.css(
-                    '#m-pd2 span::text').re_first(r'(\w+ \d{1,2},\d{4} - \d{2}:\d{2} [APMapm]{2})') or response.css('.art-byline span::text').re_first(r'([A-Za-z]+\s+\d{1,2},\s+\d{4})')
-                date_time = datetime.strptime(date_str, '%B %d,%Y - %I:%M %p')
+                debug_log.info(f"starting to process fields from {url_metadata['subdomain']}")
+                title = response.css('#landing-headline h1::text').get(default=response.css('#art-hgroup h1::text').get(default='No title'))
+                author = response.css('#m-pd2 span::text').re_first(r'By:\s*(.+)') or response.css('.art-byline a::text').get(default='No author')
+                article_content = response.css('div#article-content').get(default='Cannot extract article content')
+                
             elif url_metadata['subdomain'] == 'bandera':
-                title = response.css(
-                    '#landing-headline h1::text').get(default='No title')
-                author = response.css(
-                    '#m-pd2 span::text').re_first(r'^([\w\s.]+)\s+-')
-                date_str = response.css(
-                    '#m-pd2 span::text').re_first(r'(\w+ \d{1,2}, \d{4} - \d{1,2}:\d{2} [APMapm]{2})')
+                debug_log.info(f"starting to process fields from {url_metadata['subdomain']}")
+                title = response.css('#landing-headline h1::text').get(default='No title')
+                author = response.css('#m-pd2 span::text').re_first(r'^([\w\s.]+)\s+-')
+                date_str = response.css('#m-pd2 span::text').re_first(r'(\w+ \d{1,2}, \d{4} - \d{1,2}:\d{2} [APMapm]{2})')
                 date_time = datetime.strptime(date_str, '%B %d, %Y - %I:%M %p')
+                article_content = response.css('div#TO_target_content').get(default='Cannot extract article content')
+
             else:
-                title = response.css(
-                    'h1.entry-title::text').get(default='No title')
+                debug_log.info(f"starting to process fields from {url_metadata['subdomain']} in ELSE")
+                title = response.css('h1.entry-title::text').get(default='No title')
                 source = response.css('div#art_plat *::text').getall()
-                author = response.css('div#art_author::attr(data-byline-strips)').get(
-                    default=source[1] if len(source) > 2 else 'No Author'
+                author = response.css('div#art_author::attr(data-byline-strips)').get(default=source[1] if len(source) > 2 else 'No Author')
+
+                article_content = response.css('div#FOR_target_content').get(default='Cannot extract article content')
+            
+            article_content = clean_article(
+                    article=article_content,
+                    unwanted_ids=unwanted_ids,
+                    unwanted_classes=unwanted_classes,
+                    unwanted_elements=unwanted_elements
                 )
-                date_time = find_date_in_list(source)
-
-            # TODO: work on getting article content for these subdomains:
-            #   - lifestyle
-            #   - pop
-            #   - bandera
-            #   - cebu daily news
-
-            # article contents from <p> element.
-            paragraphs = response.css('div#article_content p::text').getall()
-
-            # Join all the paragraph texts into a single string
-            body = '\n'.join([p.strip() for p in paragraphs if p.strip()])
-
+            
             self.news_articles.append({
                 'id': article_id,
                 'url': response.url,
+                'category': category,
                 'title': title,
                 'author': author,
-                'datetime': str(date_time),
-                'category': category,
-                'date': current_date
+                'date': current_date,
+                'article_content': article_content
             })
 
-            self.logger.info(f'''
-                article_id: {article_id}
-                ur: {response.url}
-                title: {title}
-                author: {author}
-                date_time: {date_time}
-                category: {category}
-                current_date: {current_date}
-            ''')
+            debug_log.info(f'Article details extracted: {article_id} - {title}')
+
         except Exception as e:
-            debug_log.error(
-                f'Error parsing article details: {e} at {response.url}')
-            self.logger.error(f'Error parsing article details: {e}')
+            debug_log.error(f'Error parsing article details: {e} for {response.url} \n {traceback.format_exc()}')
+            self.logger.error(f'Error parsing article details: {e} \n {traceback.format_exc()}') 
 
     def closed(self, reason):
         with open('news_articles.json', 'w') as f:
             json.dump(self.news_articles, f, indent=4)
-
-
-class InquirerArticleSpider(scrapy.Spider):
-    '''
-    `InquirerArticleSpider` is a Scrapy spider designed to scrape articles from the Inquirer website.
-    Attributes:
-        name (str): The name of the spider, used by Scrapy to identify it.
-        start_urls (list): A list of URLs to start scraping from, initialized via the 'urls' parameter.
-    Methods:
-        __init__(urls, **kwargs):
-            Initializes the spider with a list of URLs or a single URL.
-            Args:
-                urls (str or list): A single URL as a string or a list of URLs to scrape.
-            Raises:
-                ValueError: If the 'urls' parameter is not a string or a list of strings.
-        parse(response):
-            Parses the response from the given URL to extract article details.
-            Args:
-                response (scrapy.http.Response): The response object containing the HTML content of the page.
-            Yields:
-                dict: A dictionary containing the following keys:
-                    - 'url': The URL of the article.
-                    - 'title': The title of the article.
-                    - 'author': The author of the article (default is 'No author' if not found).
-                    - 'date_time': The date and time of the article (raw text from the page).
-                    - 'body': The main content of the article, concatenated into a single string.
-    '''
-    name = 'inquirer_article'
-
-    def __init__(self, urls, **kwargs):
-        super().__init__(**kwargs)
-        if isinstance(urls, str):
-            self.start_urls = [urls]
-        elif isinstance(urls, list):
-            self.start_urls = urls
-        else:
-            raise ValueError(
-                'The `urls` parameter must be a string or a list of strings.')
-
-    def parse(self, response):
-        article_dt_format = '%I:%M %p %B %d, %Y'
-        url_metadata = parse_inq_art_url(response.url)
-
-        match url_metadata['subdomain']:
-            case 'lifestyle':
-                title = response.css(
-                    'h1.elementor-heading-title::text').get(default='No title')
-                author = response.css(
-                    'div.elementor-widget-post-info ul.elementor-post-info li span.elementor-post-info__terms-list a::text'
-                ).get(default='No author')
-
-                date = response.css(
-                    '.elementor-post-info__item--type-date::text').get()
-                time = response.css(
-                    '.elementor-post-info__item--type-time::text').get()
-
-                date_time = datetime.strftime(
-                    f'{time} {date}', article_dt_format)
-            case _:
-                title = response.css(
-                    'h1.entry-title::text').get(default='No title')
-                # Extract the date from the <div id='art_plat'> tag
-                source = response.css('div#art_plat *::text').getall()
-                author = response.css('div#art_author::attr(data-byline-strips)').get(
-                    default=source[1] if 2 < len(source) else 'No Author')
-
-                date_time = find_date_in_list(
-                    source, date_format=article_dt_format)
-
-        # article contents from <p> element.
-        paragraphs = response.css('div#article_content p::text').getall()
-
-        # Join all the paragraph texts into a single string
-        body = '\n'.join([p.strip() for p in paragraphs if p.strip()])
-
-        data = {
-            'url': response.url,
-            'title': title,
-            'author': author,
-            'date_time': date_time,
-            'body': body
-        } | url_metadata
-        yield data
-
 
 def refresh_news_articles(start_date: str = '2025-01-01', end_date: str = None):
     process = CrawlerProcess(
@@ -290,24 +178,5 @@ def refresh_news_articles(start_date: str = '2025-01-01', end_date: str = None):
         InquirerArticlesLinksSpider,
         start_date=start_date,
         end_date=end_date)
-
-    process.start()
-
-
-def get_article_content(article_links: list[str] = [], end_date: str = None):
-    process = CrawlerProcess(
-        settings={
-            'USER_AGENT': 'Mozilla/5.0',
-            'DOWNLOAD_DELAY': 1,
-            'LOG_LEVEL': 'INFO',
-            'ROBOTSTXT_OBEY': True,
-            'FEEDS': {
-                'article_content.csv': {'format': 'csv'}
-            }
-        })
-
-    process.crawl(
-        InquirerArticleSpider,
-        urls=article_links)
 
     process.start()
