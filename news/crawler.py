@@ -149,8 +149,8 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                 'id': article_id,
                 'url': response.url,
                 'category': category,
-                'title': title,
-                'author': author,
+                'title': title.strip(),
+                'author': author.strip(),
                 'date': current_date,
                 'article_content': article_content
             })
