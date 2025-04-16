@@ -93,16 +93,16 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                     )
 
     def parse_article_details(self, response):
+        url_metadata = parse_inq_art_url(response.url)
+        category = response.meta.get('category')
+        current_date = response.meta.get('current_date')
+        article_id = f"{url_metadata['subdomain']}:{url_metadata['article_id']}:{url_metadata['slug']}"
+
+        unwanted_ids = ['billboard_article', 'article-new-featured', 'taboola-mid-article-thumbnails', 'taboola-mid-article-thumbnails-stream', 'fb-root']
+        unwanted_classes = ['.ztoop', '.sib-form', '.cdn_newsletter']
+        unwanted_elements = ['script', 'style']
+
         try:
-            url_metadata = parse_inq_art_url(response.url)
-            category = response.meta.get('category')
-            current_date = response.meta.get('current_date')
-            article_id = f"{url_metadata['subdomain']}:{url_metadata['article_id']}:{url_metadata['slug']}"
-
-            unwanted_ids = ['billboard_article', 'article-new-featured', 'taboola-mid-article-thumbnails', 'taboola-mid-article-thumbnails-stream', 'fb-root']
-            unwanted_classes = ['.ztoop', '.sib-form', '.cdn_newsletter']
-            unwanted_elements = ['script', 'style']
-
             # Extract article details based on subdomain
             if url_metadata['subdomain'] == 'lifestyle':
                 debug_log.info(f"starting to process fields from {url_metadata['subdomain']}")
@@ -145,7 +145,7 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                     unwanted_elements=unwanted_elements
                 )
             
-            self.news_articles.append({
+            article_data = {
                 'id': article_id,
                 'url': response.url,
                 'category': category,
@@ -153,13 +153,26 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                 'author': author.strip(),
                 'date': current_date,
                 'article_content': article_content
-            })
+            }
+
+            self.news_articles.append(article_data)
+
+            with open('inquirer.json', 'a', encoding='utf-8') as f:
+                f.write(json.dumps(article_data, ensure_ascii=False) + "\n")
 
             debug_log.info(f'Article details extracted: {article_id} - {title}')
 
         except Exception as e:
             debug_log.error(f'Error parsing article details: {e} for {response.url} \n {traceback.format_exc()}')
             self.logger.error(f'Error parsing article details: {e} \n {traceback.format_exc()}') 
+            
+            with open('failed_extractions.json', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({
+                'url': response.url,
+                'category': category,
+                'date': current_date
+            }, ensure_ascii=False) + "\n")
+
 
     def closed(self, reason):
         with open('news_articles.json', 'w') as f:
