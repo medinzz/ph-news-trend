@@ -7,3 +7,5 @@ app.log
 
 article_content.csv
 news_articles.json
+inquirer.json
+failed_extractions.json
