@@ -5,7 +5,7 @@ env/
 
 app.log
 
-article_content.csv
+inquirer_links.json
 news_articles.json
 inquirer.json
 failed_extractions.json

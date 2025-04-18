@@ -17,8 +17,8 @@ debug_log = setup_logger()
 
 class InquirerArticlesLinksSpider(scrapy.Spider):
     '''
-    `InquirerArticlesLinksSpider` is a Scrapy spider for scraping article links from the Philippine Daily Inquirer website 
-    based on a specified date range.
+    `InquirerArticlesLinksSpider` is a Scrapy spider for scraping article links and metadata 
+    from the Philippine Daily Inquirer website based on a specified date range.
 
     Attributes:
         name (str): The name of the spider.
@@ -28,7 +28,7 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
         news_articles (list): A list to store scraped article metadata.
 
     Methods:
-        __init__(start_date='2025-01-01', end_date=None, **kwargs):
+        __init__(start_date: str, end_date: str, **kwargs):
             Initializes the spider with a start date and an optional end date.
 
         start_requests():
@@ -36,10 +36,12 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
             targeting the article index page for that date.
 
         parse(response):
-            Extracts article links and metadata from the article index page.
+            Extracts sections, article links, and metadata from the article index page. 
+            Writes the extracted links to a JSON file.
 
         parse_article_details(response):
-            Extracts detailed metadata for each article.
+            Extracts detailed metadata for each article, including title, author, 
+            publication date, and content. Cleans unwanted elements from the article content.
 
         closed(reason):
             Saves the scraped article metadata to a JSON file when the spider finishes.
@@ -69,37 +71,58 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
             current_date += timedelta(days=1)
 
     def parse(self, response):
-        # Extract sections and their corresponding article links
-        for section in response.css('h4'):
-            category = section.css('::text').get().strip()
-            ul = section.xpath('following-sibling::ul[1]')
-            links = ul.css('li a::attr(href)').getall()
+        sections = response.css('h4')
+        for section in sections:
+            category = section.css('::text').get(default='').strip()
+            links = section.xpath('following-sibling::ul[1]/li/a/@href').getall()
 
-            for link in links:
-                if link.startswith('https://'):
-                    parsed_link = parse_inq_art_url(link)
+            valid_links = [
+                link for link in links
+                if link.startswith('https://') and not (
+                    'daily-gospel' in parse_inq_art_url(link)['slug'] and 
+                    parse_inq_art_url(link)['subdomain'] == 'cebudailynews'
+                )
+            ]
 
-                    # Excluding daily gospel 
-                    if 'daily-gospel' in parsed_link['slug'] and parsed_link['subdomain'] == 'cebudailynews':
-                        continue
+            with open('inquirer_links.json', 'a', encoding='utf-8') as f:
+                for link in valid_links:
+                    f.write(json.dumps({
+                        'url': link,
+                        'category': category,
+                        'date': response.meta['current_date']
+                    }, ensure_ascii=False) + "\n")
                     
-                    # Extracting article links
-                    with open('inquirer_links.json', 'a', encoding='utf-8') as f:
-                        f.write(json.dumps({
-                            'url': link,
-                            'category': category,
-                            'date': response.meta['current_date']
-                        }, ensure_ascii=False) + "\n")
+        # # OLD CODE
+        # for section in response.css('h4'):
+        #     category = section.css('::text').get().strip()
+        #     ul = section.xpath('following-sibling::ul[1]')
+        #     links = ul.css('li a::attr(href)').getall()
 
-                    ## Extracting article details
-                    # yield scrapy.Request(
-                    #     url=link,
-                    #     callback=self.parse_article_details,
-                    #     meta={
-                    #         'category': category,
-                    #         'current_date': response.meta['current_date']
-                    #     }
-                    # )
+        #     for link in links:
+        #         if link.startswith('https://'):
+        #             parsed_link = parse_inq_art_url(link)
+
+        #             # Excluding daily gospel 
+        #             if 'daily-gospel' in parsed_link['slug'] and parsed_link['subdomain'] == 'cebudailynews':
+        #                 continue
+                    
+        #             # Extracting article links
+        #             with open('inquirer_links.json', 'a', encoding='utf-8') as f:
+        #                 f.write(json.dumps({
+        #                     'url': link,
+        #                     'category': category,
+        #                     'date': response.meta['current_date']
+        #                 }, ensure_ascii=False) + "\n")
+
+        #             # Extracting article details
+        #             yield scrapy.Request(
+        #                 url=link,
+        #                 callback=self.parse_article_details,
+        #                 meta={
+        #                     'category': category,
+        #                     'current_date': response.meta['current_date']
+        #                 }
+        #             )
 
     def parse_article_details(self, response):
         url_metadata = parse_inq_art_url(response.url)
