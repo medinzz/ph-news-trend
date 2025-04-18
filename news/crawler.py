@@ -47,7 +47,7 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
     name = 'inquirer_articles_from_archive'
     allowed_domains = ['inquirer.net']
 
-    def __init__(self, start_date: str = '2025-01-01', end_date: str = None, **kwargs):
+    def __init__(self, start_date: str, end_date: str, **kwargs):
         super().__init__(**kwargs)
         self.url_dt_format = '%Y-%m-%d'
 
@@ -82,15 +82,24 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                     # Excluding daily gospel 
                     if 'daily-gospel' in parsed_link['slug'] and parsed_link['subdomain'] == 'cebudailynews':
                         continue
-
-                    yield scrapy.Request(
-                        url=link,
-                        callback=self.parse_article_details,
-                        meta={
+                    
+                    # Extracting article links
+                    with open('inquirer_links.json', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({
+                            'url': link,
                             'category': category,
-                            'current_date': response.meta['current_date']
-                        }
-                    )
+                            'date': response.meta['current_date']
+                        }, ensure_ascii=False) + "\n")
+
+                    ## Extracting article details
+                    # yield scrapy.Request(
+                    #     url=link,
+                    #     callback=self.parse_article_details,
+                    #     meta={
+                    #         'category': category,
+                    #         'current_date': response.meta['current_date']
+                    #     }
+                    # )
 
     def parse_article_details(self, response):
         url_metadata = parse_inq_art_url(response.url)
@@ -178,7 +187,7 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
         with open('news_articles.json', 'w') as f:
             json.dump(self.news_articles, f, indent=4)
 
-def refresh_news_articles(start_date: str = '2025-01-01', end_date: str = None):
+def refresh_news_articles(start_date: str = '2001-01-01', end_date: str = None):
     process = CrawlerProcess(
         settings={
             'USER_AGENT': 'Mozilla/5.0',
