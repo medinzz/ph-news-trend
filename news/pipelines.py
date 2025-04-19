@@ -23,6 +23,8 @@ class InquirerCleaningPipeline:
         )
 
     def process_item(self, item, spider):
+        
+        ################### CONVERT HTML RAW CONTENT TO MARKDOWN ###################
         html = item['raw_content']
         soup = BeautifulSoup(html, 'html.parser')
 
@@ -43,6 +45,7 @@ class InquirerCleaningPipeline:
 
         cleaned_html = str(soup)
         item['cleaned_content'] = self.html2md.handle(cleaned_html)
+        
         return item
 
 
@@ -60,7 +63,9 @@ class SQLitePipeline:
                 title TEXT,
                 author TEXT,
                 date TEXT,
-                content TEXT
+                publish_time TEXT,
+                content TEXT, 
+                tags TEXT
             )
         ''')
         self.conn.commit()
@@ -71,12 +76,12 @@ class SQLitePipeline:
     def process_item(self, item, spider):
         self.cursor.execute('''
             INSERT OR REPLACE INTO articles
-            (id,url,category,title,author,date,content)
-            VALUES (?,?,?,?,?,?,?)
+            (id,url,category,title,author,date,publish_time,content,tags)
+            VALUES (?,?,?,?,?,?,?,?,?)
         ''', (
             item['id'], item['url'], item['category'],
-            item['title'], item['author'], item['date'],
-            item['cleaned_content']
+            item['title'], item['author'], item['date'],item['publish_time'],
+            item['cleaned_content'], item['tags']
         ))
         self.conn.commit()
         return item

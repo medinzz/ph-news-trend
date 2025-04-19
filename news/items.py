@@ -8,5 +8,7 @@ class ArticleItem(scrapy.Item):
     title = scrapy.Field()
     author = scrapy.Field()
     date = scrapy.Field()
+    publish_time = scrapy.Field()
     raw_content = scrapy.Field()
     cleaned_content = scrapy.Field()
+    tags = scrapy.Field()

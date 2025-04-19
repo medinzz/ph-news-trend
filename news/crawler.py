@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from doctest import debug
 import traceback
 import scrapy
 from scrapy.crawler import CrawlerProcess
@@ -101,8 +102,11 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
             title=self.extract_title(response, url_metadata),
             author=self.extract_author(response, url_metadata),
             date=response.meta['current_date'],
-            raw_content=self.extract_content(response, url_metadata)
+            publish_time=self.extract_publish_time(response),
+            raw_content=self.extract_content(response, url_metadata),
+            tags=self.extract_tags(response, url_metadata)
         )
+        
         yield item
 
     def extract_title(self, response, url_metadata):
@@ -163,6 +167,48 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
             debug_log.error(f'Error extracting content: {e}')
             debug_log.debug(traceback.format_exc())
             return 'Error extracting content'
+        
+    def extract_tags(self, response, url_metadata):
+        tags = []
+        try:
+            match url_metadata['subdomain']:
+                case 'pop':
+                    tags = response.css('div.tags-box span.tags-links a::attr(href)')
+                case _:
+                    tags = response.css('div#article_tags a::attr(href)').getall()
+                    
+            tags = [tag.split('/tag/')[1] for tag in tags if '/tag/' in tag]
+                    
+        except Exception as e:
+            debug_log.error(f'Error extracting tags: {e}')
+            debug_log.debug(traceback.format_exc())
+        
+        finally:
+            return ', '.join(tags)
+    
+    def extract_publish_time(self, response):
+        publish_time = None
+        try:
+            meta_tags = response.css('meta[property="article:published_time"]::attr(content)').getall()
+            for content in meta_tags:
+                try:
+                    # Prefer the format with weekday (e.g., "Sat, 19 Apr 2025 09:18:07 PST")
+                    if ',' in content and content.split(',')[0].strip().isalpha():
+                        if 'PST' in content:
+                            content = content.replace('PST', '')
+                        publish_time = datetime.strptime(content.strip(), "%a, %d %b %Y %H:%M:%S")
+                    else:
+                        publish_time = datetime.fromisoformat(content)
+                except Exception:
+                    continue
+                
+        except Exception as e:
+            debug_log.error(f'Error extracting publish time: {e}')
+            debug_log.debug(traceback.format_exc())
+            return 'Error extracting publish time'
+
+        finally:
+            return publish_time
 
 
 def refresh_news_articles(start_date: str = '2001-01-01', end_date: str = datetime.today().strftime('%Y-%m-%d')):
