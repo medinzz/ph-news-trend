@@ -4,7 +4,7 @@ import scrapy
 from scrapy.crawler import CrawlerProcess
 
 # Local lib
-from util.tools import parse_inq_art_url, clean_article
+from util.tools import parse_inq_art_url
 from util.logger import setup_logger
 from news.items import ArticleItem
 
@@ -64,6 +64,7 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                 meta={'current_date': current_date.strftime(self.url_dt_format)}
             )
             current_date += timedelta(days=1)
+            debug_log.info(f'Scraping articles from {current_date.strftime(self.url_dt_format)}')
 
     def parse_links(self, response):
         sections = response.css('h4')
