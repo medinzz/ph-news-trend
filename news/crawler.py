@@ -173,14 +173,14 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
         try:
             match url_metadata['subdomain']:
                 case 'pop':
-                    tags = response.css('div.tags-box span.tags-links a::attr(href)')
+                    tags = response.css('div.tags-box span.tags-links a::attr(href)').getall()
                 case _:
                     tags = response.css('div#article_tags a::attr(href)').getall()
                     
             tags = [tag.split('/tag/')[1] for tag in tags if '/tag/' in tag]
                     
         except Exception as e:
-            debug_log.error(f'Error extracting tags: {e}')
+            debug_log.error(f'Error extracting tags: {e} on {url_metadata}')
             debug_log.debug(traceback.format_exc())
         
         finally:

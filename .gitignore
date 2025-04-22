@@ -7,3 +7,5 @@ app.log
 
 *.db
 *.sqlite3
+
+util/const.py
