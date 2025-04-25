@@ -8,7 +8,7 @@ from scrapy.crawler import CrawlerProcess
 from util.tools import parse_inq_art_url, setup_logger
 from news.items import ArticleItem
 
-debug_log = setup_logger()
+logger = setup_logger()
 
 
 class InquirerArticlesLinksSpider(scrapy.Spider):
@@ -64,7 +64,7 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                 meta={'current_date': current_date.strftime(self.url_dt_format)}
             )
             current_date += timedelta(days=1)
-            debug_log.info(f'Scraping articles from {current_date.strftime(self.url_dt_format)}')
+            logger.info(f'Scraping articles from {current_date.strftime(self.url_dt_format)}')
 
     def parse_links(self, response):
         sections = response.css('h4')
@@ -125,8 +125,8 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                 case _:
                     return response.css('h1.entry-title::text').get(default='No title')
         except Exception as e:
-            debug_log.error(f'Error extracting title: {e}')
-            debug_log.debug(traceback.format_exc())
+            logger.error(f'Error extracting title: {e}')
+            logger.debug(traceback.format_exc())
             return 'Error extracting title'
 
     def extract_author(self, response, url_metadata):
@@ -149,8 +149,8 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                         'div#art_author::attr(data-byline-strips)'
                     ).get(default=source[1] if len(source) > 2 else 'No Author')
         except Exception as e:
-            debug_log.error(f'Error extracting author: {e}')
-            debug_log.debug(traceback.format_exc())
+            logger.error(f'Error extracting author: {e}')
+            logger.debug(traceback.format_exc())
             return 'Error extracting author'
 
     def extract_content(self, response, url_metadata):
@@ -164,8 +164,8 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
             selector = content_selectors.get(url_metadata['subdomain'], 'div#FOR_target_content')
             return response.css(selector).get(default='Cannot extract article content')
         except Exception as e:
-            debug_log.error(f'Error extracting content: {e}')
-            debug_log.debug(traceback.format_exc())
+            logger.error(f'Error extracting content: {e}')
+            logger.debug(traceback.format_exc())
             return 'Error extracting content'
         
     def extract_tags(self, response, url_metadata):
@@ -180,8 +180,8 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
             tags = [tag.split('/tag/')[1] for tag in tags if '/tag/' in tag]
                     
         except Exception as e:
-            debug_log.error(f'Error extracting tags: {e} on {url_metadata}')
-            debug_log.debug(traceback.format_exc())
+            logger.error(f'Error extracting tags: {e} on {url_metadata}')
+            logger.debug(traceback.format_exc())
         
         finally:
             return ', '.join(tags)
@@ -203,8 +203,8 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                     continue
                 
         except Exception as e:
-            debug_log.error(f'Error extracting publish time: {e}')
-            debug_log.debug(traceback.format_exc())
+            logger.error(f'Error extracting publish time: {e}')
+            logger.debug(traceback.format_exc())
             return 'Error extracting publish time'
 
         finally:
