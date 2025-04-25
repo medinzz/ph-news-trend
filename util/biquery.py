@@ -2,7 +2,7 @@ from google.cloud import bigquery
 import pandas as pd
 
 # Local libraries
-from util.logger import setup_logger
+from util.tools import setup_logger
 from util.const import GCP_PROJECT_ID
 
 client = bigquery.Client(project=GCP_PROJECT_ID)

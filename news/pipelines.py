@@ -58,6 +58,7 @@ class SQLitePipeline:
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS articles (
                 id TEXT PRIMARY KEY,
+                source TEXT,
                 url TEXT,
                 category TEXT,
                 title TEXT,
@@ -76,12 +77,19 @@ class SQLitePipeline:
     def process_item(self, item, spider):
         self.cursor.execute('''
             INSERT OR REPLACE INTO articles
-            (id,url,category,title,author,date,publish_time,content,tags)
-            VALUES (?,?,?,?,?,?,?,?,?)
+            (id,source,url,category,title,author,date,publish_time,content,tags)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
         ''', (
-            item['id'], item['url'], item['category'],
-            item['title'], item['author'], item['date'],item['publish_time'],
-            item['cleaned_content'], item['tags']
+            item['id'],
+            item['source'],
+            item['url'],
+            item['category'],
+            item['title'],
+            item['author'],
+            item['date'],
+            item['publish_time'],
+            item['cleaned_content'],
+            item['tags']
         ))
         self.conn.commit()
         return item

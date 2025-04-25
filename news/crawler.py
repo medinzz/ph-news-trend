@@ -5,8 +5,7 @@ import scrapy
 from scrapy.crawler import CrawlerProcess
 
 # Local lib
-from util.tools import parse_inq_art_url
-from util.logger import setup_logger
+from util.tools import parse_inq_art_url, setup_logger
 from news.items import ArticleItem
 
 debug_log = setup_logger()
@@ -97,6 +96,7 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
 
         item = ArticleItem(
             id=article_id,
+            source=url_metadata['origin'],
             url=response.url,
             category=response.meta['category'],
             title=self.extract_title(response, url_metadata),
@@ -198,7 +198,7 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                             content = content.replace('PST', '')
                         publish_time = datetime.strptime(content.strip(), "%a, %d %b %Y %H:%M:%S")
                     else:
-                        publish_time = datetime.fromisoformat(content)
+                        publish_time = datetime.fromisoformat(content).striptime('%Y-%m-%d %H:%M:%S')
                 except Exception:
                     continue
                 

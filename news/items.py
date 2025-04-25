@@ -3,6 +3,7 @@ import scrapy
 
 class ArticleItem(scrapy.Item):
     id = scrapy.Field()
+    source = scrapy.Field()
     url = scrapy.Field()
     category = scrapy.Field()
     title = scrapy.Field()
