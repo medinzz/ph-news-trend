@@ -1,6 +1,7 @@
 import sqlite3
-from bs4 import BeautifulSoup
 import html2text
+from bs4 import BeautifulSoup
+from util.sqlite import SQLiteConnection
 
 
 class InquirerCleaningPipeline:
@@ -51,45 +52,13 @@ class InquirerCleaningPipeline:
 
 class SQLitePipeline:
     """Store each item into a SQLite database."""
-
+        
     def open_spider(self, spider):
-        self.conn = sqlite3.connect('articles.db')
-        self.cursor = self.conn.cursor()
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS articles (
-                id TEXT PRIMARY KEY,
-                source TEXT,
-                url TEXT,
-                category TEXT,
-                title TEXT,
-                author TEXT,
-                date TEXT,
-                publish_time TEXT,
-                content TEXT, 
-                tags TEXT
-            )
-        ''')
-        self.conn.commit()
+         self.sqlite = SQLiteConnection('articles.db', 'articles')
 
     def close_spider(self, spider):
-        self.conn.close()
+        self.sqlite.close()
 
     def process_item(self, item, spider):
-        self.cursor.execute('''
-            INSERT OR REPLACE INTO articles
-            (id,source,url,category,title,author,date,publish_time,content,tags)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
-        ''', (
-            item['id'],
-            item['source'],
-            item['url'],
-            item['category'],
-            item['title'],
-            item['author'],
-            item['date'],
-            item['publish_time'],
-            item['cleaned_content'],
-            item['tags']
-        ))
-        self.conn.commit()
+        self.sqlite.insert_record(item)
         return item
