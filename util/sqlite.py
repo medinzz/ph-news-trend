@@ -79,7 +79,6 @@ class SQLiteConnection:
             logger.error(f"Error inserting record: {e}")
         finally:    
             self.conn.commit()
-            logger.info(f"Inserted record with ID {item['id']} into {self.table_name} table.")
         
     def close(self):
         """Close the database connection."""

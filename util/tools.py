@@ -1,11 +1,10 @@
-from urllib.parse import urlparse
-import logging
-
-
 def setup_logger(log_file="app.log"):
     """
     Set up and return a logger that writes logs to both a file and the console.
     """
+    import logging
+
+
     logger = logging.getLogger("custom_logger")
     logger.setLevel(logging.DEBUG)
 
@@ -25,22 +24,29 @@ def setup_logger(log_file="app.log"):
 
     return logger
 
-# URL TOOLS
-def parse_inq_art_url(url) -> dict:
-    parsed = urlparse(url)
-    # Extract subdomain (e.g., 'pop', 'globalnation', 'business')
-    subdomain = parsed.netloc.split('.')[0]
-    origin = parsed.netloc.split('.')[1] if len(parsed.netloc.split('.')) > 1 else ''
 
-    # Split the path: ['', 'article_id', 'article-slug']
-    path_parts = parsed.path.strip('/').split('/', 1)
+# ASYNC HTTP REQUESTS
+async def async_get(session, url, params=None, **kwargs):
+    async with session.get(url, params=params) as response:
+        if response.status == 200:
+            result = await response.json()
+        
+            # If there are any kwargs passed, update the result
+            if kwargs:
+                result.update(kwargs)
+            
+            return result
+        else:
+            raise Exception(f"Error fetching {url}: {response.status}")
+        
+# HTML 2 MARKDOWN CONVERTER
 
-    article_id = path_parts[0] if path_parts else ''
-    slug = path_parts[1] if len(path_parts) > 1 else ''
+def html_to_markdown(html: str) -> str:
+    import html2text
 
-    return {
-        'subdomain': subdomain,
-        'origin': origin,
-        'article_id': article_id,
-        'slug': slug
-    }
+
+    html2md = html2text.HTML2Text()
+    html2md.ignore_images = True
+    html2md.body_width = 0
+
+    return html2md.handle(html)
