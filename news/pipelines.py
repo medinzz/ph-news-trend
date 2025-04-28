@@ -1,7 +1,6 @@
-import sqlite3
-import html2text
 from bs4 import BeautifulSoup
 from util.sqlite import SQLiteConnection
+from util.tools import html_to_markdown
 
 
 class InquirerCleaningPipeline:
@@ -11,8 +10,6 @@ class InquirerCleaningPipeline:
         self.unwanted_ids = unwanted_ids
         self.unwanted_classes = unwanted_classes
         self.unwanted_tags = unwanted_tags
-        self.html2md = html2text.HTML2Text()
-        self.html2md.body_width = 0
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -45,7 +42,7 @@ class InquirerCleaningPipeline:
                 tag.decompose()
 
         cleaned_html = str(soup)
-        item['cleaned_content'] = self.html2md.handle(cleaned_html)
+        item['cleaned_content'] = html_to_markdown(cleaned_html)
         
         return item
 

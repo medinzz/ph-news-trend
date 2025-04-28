@@ -5,7 +5,7 @@ import scrapy
 from scrapy.crawler import CrawlerProcess
 
 # Local lib
-from util.tools import parse_inq_art_url, setup_logger
+from util.tools import setup_logger
 from news.items import ArticleItem
 
 logger = setup_logger()
@@ -75,8 +75,8 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
             valid_links = [
                 link for link in links
                 if link.startswith('https://') and not (
-                    'daily-gospel' in parse_inq_art_url(link)['slug'] and
-                    parse_inq_art_url(link)['subdomain'] == 'cebudailynews'
+                    'daily-gospel' in self.parse_inq_art_url(link)['slug'] and
+                    self.parse_inq_art_url(link)['subdomain'] == 'cebudailynews'
                 )
             ]
 
@@ -91,7 +91,7 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                 )
 
     def parse_article_details(self, response):
-        url_metadata = parse_inq_art_url(response.url)
+        url_metadata = self.parse_inq_art_url(response.url)
         article_id = f"{url_metadata['subdomain']}:{url_metadata['article_id']}:{url_metadata['slug']}"
 
         item = ArticleItem(
@@ -108,6 +108,48 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
         )
         
         yield item
+    
+    # URL TOOLS
+    def parse_inq_art_url(self, url) -> dict:
+        """
+        Parses a Philippine Inquirer article URL and extracts its components.
+        Args:
+            url (str): The URL of the Inquirer article to parse.
+        Returns:
+            dict: A dictionary containing the following keys:
+                - 'subdomain': The subdomain of the URL (e.g., 'pop', 'globalnation', 'business').
+                - 'origin': The main domain or origin (e.g., 'inquirer').
+                - 'article_id': The article ID extracted from the URL path.
+                - 'slug': The article slug (title part) extracted from the URL path.
+        Example:
+            >>> parse_inq_art_url('https://pop.inquirer.net/123456/article-title-here')
+            {
+                'subdomain': 'pop',
+                'origin': 'inquirer',
+                'article_id': '123456',
+                'slug': 'article-title-here'
+        """
+
+        from urllib.parse import urlparse
+
+        
+        parsed = urlparse(url)
+        # Extract subdomain (e.g., 'pop', 'globalnation', 'business')
+        subdomain = parsed.netloc.split('.')[0]
+        origin = parsed.netloc.split('.')[1] if len(parsed.netloc.split('.')) > 1 else ''
+
+        # Split the path: ['', 'article_id', 'article-slug']
+        path_parts = parsed.path.strip('/').split('/', 1)
+
+        article_id = path_parts[0] if path_parts else ''
+        slug = path_parts[1] if len(path_parts) > 1 else ''
+
+        return {
+            'subdomain': subdomain,
+            'origin': origin,
+            'article_id': article_id,
+            'slug': slug
+        }
 
     def extract_title(self, response, url_metadata):
         try:
