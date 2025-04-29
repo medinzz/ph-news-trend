@@ -1,5 +1,3 @@
-from typing import List, Dict
-
 ################### LOGGER ###################
 def setup_logger(log_file="app.log"):
     """
@@ -32,7 +30,7 @@ def setup_logger(log_file="app.log"):
 async def async_get(
         session,
         url: str,
-        params: Dict[str, str | int] = {}, 
+        params: dict[str, str | int] = {}, 
         **kwargs):
     async with session.get(url, params=params) as response:
         if response.status == 200:
@@ -49,9 +47,9 @@ async def async_get(
 ################### CONVERT HTML RAW CONTENT TO MARKDOWN ###################
 def html_to_markdown(
         html: str,
-        unwanted_ids: List[str] = [],
-        unwanted_classes: List[str] = [],
-        unwanted_tags: List[str] = []) -> str:
+        unwanted_ids: list[str] = [],
+        unwanted_classes: list[str] = [],
+        unwanted_tags: list[str] = []) -> str:
     
     import html2text
     from bs4 import BeautifulSoup

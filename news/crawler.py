@@ -17,11 +17,11 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
     from the Philippine Daily Inquirer website based on a specified date range.
 
     Attributes:
-        name (str): The name of the spider.
-        allowed_domains (list): A list of domains that the spider is allowed to crawl.
-        start_date (datetime): The starting date for scraping articles.
-        end_date (datetime): The ending date for scraping articles.
-        news_articles (list): A list to store scraped article metadata.
+        allowed_domains (list): List of domains the spider is allowed to crawl.
+        start_date (datetime): The start date for scraping articles (inclusive).
+        end_date (datetime): The end date for scraping articles (inclusive).
+        news_articles (list): Stores scraped article metadata.
+            Initializes the spider with a start and end date for scraping.
 
     Methods:
         __init__(start_date: str, end_date: str, **kwargs):
@@ -31,13 +31,29 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
             Generates initial requests for each date in the specified range,
             targeting the article index page for that date.
 
-        parse(response):
-            Extracts sections, article links, and metadata from the article index page.
-            Writes the extracted links to a JSON file.
+        parse_links(response):
+            Extracts article categories and links from the index page for a given date.
+            Filters out unwanted links and schedules requests to fetch article details.
+            publication date, content, and tags. Returns an ArticleItem.
 
-        parse_article_details(response):
-            Extracts detailed metadata for each article, including title, author,
-            publication date, and content. Cleans unwanted elements from the article content.
+        parse_inq_art_url(url: str) -> dict:
+            Parses an Inquirer article URL and extracts subdomain, origin, article ID, and slug.
+
+        extract_title(response, url_metadata):
+            Extracts the article title using selectors specific to each subdomain.
+
+        extract_author(response, url_metadata):
+            Extracts the article author using selectors specific to each subdomain.
+
+        extract_content(response, url_metadata):
+            Extracts the main article content using selectors specific to each subdomain.
+
+        extract_tags(response, url_metadata):
+            Extracts tags associated with the article.
+            
+        extract_publish_time(response):
+            Extracts the article's publish time from meta tags, handling multiple formats.
+            (Not shown) Saves the scraped article metadata to a JSON file when the spider finishes.
 
         closed(reason):
             Saves the scraped article metadata to a JSON file when the spider finishes.

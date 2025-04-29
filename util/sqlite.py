@@ -1,5 +1,5 @@
-from math import log
 import sqlite3
+from typing import Dict, Any
 from util.tools import setup_logger
 
 logger = setup_logger()
@@ -41,7 +41,7 @@ class SQLiteConnection:
             
         self.conn.commit()
     
-    def insert_record(self, item: dict):
+    def insert_record(self, item: Dict[str, Any]):
         """Insert a record into the database."""
         try:
             match self.table_name:
@@ -79,6 +79,15 @@ class SQLiteConnection:
             logger.error(f"Error inserting record: {e}")
         finally:    
             self.conn.commit()
+    
+    def fetch_all(self, query: str) -> list:
+        """Fetch all records from the database."""
+        try:
+            self.cursor.execute(query)
+            return self.cursor.fetchall()
+        except Exception as e:
+            logger.error(f"Error fetching records: {e}")
+            return []
         
     def close(self):
         """Close the database connection."""

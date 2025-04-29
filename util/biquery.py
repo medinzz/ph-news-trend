@@ -1,5 +1,6 @@
 from google.cloud import bigquery
 import pandas as pd
+from typing import List, Dict, Any
 
 # Local libraries
 from util.tools import setup_logger
@@ -56,14 +57,14 @@ def create_or_update_table(
         logger.error(f'Table update failed: {e}')
 
 
-def insert_rows(dataset_id: str, table_name: str, rows: list[dict]):
+def insert_rows(dataset_id: str, table_name: str, rows: List[Dict[str, Any]]):
     """
     Inserts rows of data into a specified BigQuery table.
 
     Args:
         dataset_id (str): The ID of the dataset containing the target table.
         table_name (str): The name of the target table where rows will be inserted.
-        rows (list[dict]): A list of dictionaries, where each dictionary represents
+        rows (List[Dict[str, Any]]): A list of dictionaries, where each dictionary represents
             a row of data to be inserted.
 
     Logs:
