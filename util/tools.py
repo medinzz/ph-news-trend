@@ -1,3 +1,6 @@
+from typing import List, Dict
+
+################### LOGGER ###################
 def setup_logger(log_file="app.log"):
     """
     Set up and return a logger that writes logs to both a file and the console.
@@ -25,8 +28,12 @@ def setup_logger(log_file="app.log"):
     return logger
 
 
-# ASYNC HTTP REQUESTS
-async def async_get(session, url, params=None, **kwargs):
+################### ASYNC HTTP REQUESTS ###################
+async def async_get(
+        session,
+        url: str,
+        params: Dict[str, str | int] = {}, 
+        **kwargs):
     async with session.get(url, params=params) as response:
         if response.status == 200:
             result = await response.json()
@@ -39,14 +46,37 @@ async def async_get(session, url, params=None, **kwargs):
         else:
             raise Exception(f"Error fetching {url}: {response.status}")
         
-# HTML 2 MARKDOWN CONVERTER
-
-def html_to_markdown(html: str) -> str:
+################### CONVERT HTML RAW CONTENT TO MARKDOWN ###################
+def html_to_markdown(
+        html: str,
+        unwanted_ids: List[str] = [],
+        unwanted_classes: List[str] = [],
+        unwanted_tags: List[str] = []) -> str:
+    
     import html2text
+    from bs4 import BeautifulSoup
 
+    soup = BeautifulSoup(html, 'html.parser')
+
+    # Remove by id
+    for id in unwanted_ids:
+        for tag in soup.select(f'#{id}'):
+            tag.decompose()
+
+    # Remove by class
+    for html_class in unwanted_classes:
+        for tag in soup.select(f'.{html_class}'):
+            tag.decompose()
+
+    # Remove by tag name
+    for tag_str in unwanted_tags:
+        for tag in soup.find_all(tag_str):
+            tag.decompose()
+
+    cleaned_html = str(soup)
 
     html2md = html2text.HTML2Text()
     html2md.ignore_images = True
     html2md.body_width = 0
 
-    return html2md.handle(html)
+    return html2md.handle(cleaned_html)
