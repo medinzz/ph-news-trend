@@ -9,10 +9,13 @@ This project is a news crawler designed to gather and analyze the latest news in
 The project is currently under development. The following milestones have been reached:
 
 -   **Crawler for Inquirer.net:** A functional crawler has been implemented to extract news articles from [inquirer.net](https://www.inquirer.net/).
+
+
+-   **Integration of the following news outlets using their API**
+    -   [ABS-CBN News](https://od2-content-api.abs-cbn.com/prod/latest?sectionId=nation&brand=OD&partner=imp-01&limit=8&offset=undefined) 
+    -   [Manila Bulletin](https://admin.mb.com.ph/api/articles) 
 -   **Integration of Multiple Sources (In Progress):** Work is underway to incorporate additional news sources, including:
     -   [GMA Network](https://data2.gmanetwork.com/gno/widgets/grid_reverse_listing/just_in/14017.gz) - API
-    -   [ABS-CBN News](https://od2-content-api.abs-cbn.com/prod/latest?sectionId=nation&brand=OD&partner=imp-01&limit=8&offset=undefined) - API
-    - [Manila Bulletin](https://admin.mb.com.ph/api/articles) - API
     -   [Rappler](https://www.rappler.com/) - Unidentified
 
 

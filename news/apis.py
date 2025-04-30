@@ -8,7 +8,7 @@ from util.sqlite import SQLiteConnection
 
 logger = setup_logger()
 
-async def get_articles(start_date: str) -> None:
+async def abscbn_articles(start_date: str) -> None:
     url = 'https://od2-content-api.abs-cbn.com/prod/latest'
     limit = 1000
     offset = 0
@@ -90,12 +90,13 @@ async def get_articles(start_date: str) -> None:
 
             offset += limit
 
-def get_abscbn_articles(start_date: str) -> None:
+
+def get_all_articles(start_date: str) -> None:
     """
     Fetch articles from ABS-CBN and store them in a SQLite database.
     """
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(get_articles(start_date))
+    loop.run_until_complete(abscbn_articles(start_date))
 
 # # Synchronous version of the function for reference
 # def get_articles(start_date: str) -> list:
