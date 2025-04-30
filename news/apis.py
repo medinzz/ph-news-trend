@@ -72,7 +72,12 @@ async def abscbn_articles(start_date: str) -> None:
 
             # Log articles and their details
             for article in  details:
-                article_content = html_to_markdown(article['data'].get('body_html') if article.get('data') else 'No content found')
+                
+                article_content_raw = article['data'].get('body_html') if article.get('data') else 'No content found'
+                article_content = html_to_markdown(
+                    article_content_raw,
+                    unwanted_tags=['img', 'figure', 'iframe']
+                )
                 sqlite.insert_record({
                     'id': article.get('id'),
                     'source': article.get('source'),
@@ -90,59 +95,88 @@ async def abscbn_articles(start_date: str) -> None:
 
             offset += limit
 
+async def mb_articles(start_date: str) -> None:
+    url = 'https://admin.mb.com.ph/api/articles'
+    page = 1
+    params = {
+        'pagination[pageSize]': 100,
+        'sort[0]': 'publishedAt:desc',
+        'populate': '*'
+    }
+    sqlite = SQLiteConnection('articles.db', 'articles')
+
+    start_date = datetime.strptime(start_date, '%Y-%m-%d')
+    publish_date = datetime.now()
+
+    async with aiohttp.ClientSession() as session:
+        
+        while publish_date >= start_date:
+            params['pagination[page]'] = page
+            data = await async_get(session, url, params=params)
+            articles = data.get('data', [])
+            logger.info(f'Fetched {len(articles)} articles from Manila Bulletin. Page: {page}')
+
+            if not articles:
+                logger.info('No more articles found.')
+                break
+
+            for article in articles:
+                attributes = article.get('attributes', {})
+                primary_category = attributes.get('category_primary', {}) \
+                    .get('data', {}).get('attributes', {}) \
+                    .get('name', '').upper()
+                
+                author = attributes.get('author', {}) \
+                    .get('data', {}).get('attributes', {}) \
+                    .get('name', '')
+                
+                tags = [tag.get('attributes', {}).get('slug', '') \
+                        for tag in attributes.get('tags', {}).get('data', [])]
+
+                publish_date = datetime.strptime(
+                    attributes.get(
+                        'publishedAt', 
+                        ''), 
+                    '%Y-%m-%dT%H:%M:%S.%fZ')
+                created_date = datetime.strptime(
+                    attributes.get(
+                        'createdAt', 
+                        ''), 
+                    '%Y-%m-%dT%H:%M:%S.%fZ').strftime('%Y/%m/%d')
+                
+                article_content_raw = attributes.get('body', 'No content found')
+                article_content = html_to_markdown(
+                    article_content_raw,
+                    unwanted_tags=['img', 'figure', 'iframe']
+                )
+                
+                
+                # Publish date is used for filtering as the earliest create date 
+                # for every articles is: 2023-03-26T16:55:02.086Z
+                if publish_date < start_date:
+                    logger.info('Reached articles older than start_date')
+                    break
+
+                sqlite.insert_record({
+                    'id': article.get('id'),
+                    'source': 'manila bulletin',
+                    'url': 'https://mb.com.ph/' + created_date + '/' + attributes.get('slug'),
+                    'category': primary_category.upper(),
+                    'title': attributes.get('title'),
+                    'author': author,
+                    'date': publish_date.strftime('%Y-%m-%d'),
+                    'publish_time': publish_date.strftime('%Y-%m-%d %H:%M:%S'),
+                    'tags': ','.join(tags),
+                    'cleaned_content': article_content,
+                })
+            
+            page += 1
+
 
 def get_all_articles(start_date: str) -> None:
     """
     Fetch articles from ABS-CBN and store them in a SQLite database.
     """
     loop = asyncio.get_event_loop()
+    loop.run_until_complete(mb_articles(start_date))
     loop.run_until_complete(abscbn_articles(start_date))
-
-# # Synchronous version of the function for reference
-# def get_articles(start_date: str) -> list:
-#     url = 'https://od2-content-api.abs-cbn.com/prod/latest'
-#     limit = 1000
-#     offset = 0
-#     params = {
-#         'sectionId': 'news',
-#         'brand': 'OD',
-#         'partner': 'imp-01',
-#         'limit': limit,
-#         'offset': offset,
-#     }
-#     start_date = datetime.strptime(start_date, '%Y-%m-%d')
-#     article_date = datetime.now()
-    
-#     sqlite_conn = SQLiteConnection('articles.db', 'articles')
-    
-#     articles = []
-#     while article_date >= start_date:
-#         response = requests.get(url, params=params)
-#         try:
-#             if response.status_code == 200:
-#                 data = response.json().get('listItem', [])
-#                 logger.info(f'Fetched {len(data)} articles from ABS-CBN. at date: {article_date}')
-#                 for article in data:
-#                     article_date = datetime.strptime(article['createdDateFull'], '%Y-%m-%dT%H:%M:%SZ')
-#                     sqlite_conn.insert_record({
-#                         'id': article['_id'],
-#                         'source': 'abs-cbn',
-#                         'url': 'https://www.abs-cbn.com/' + article['slugline_url'],
-#                         'category': article['category'].upper(),
-#                         'title': article['title'],
-#                         'author': article['author'],
-#                         'date': article_date.strftime('%Y-%m-%d'),
-#                         'publish_time': article_date.strftime('%Y-%m-%d %H:%M:%S'),
-#                         'tags': article['tags'],
-#                         'cleaned_content': None,
-#                     })
-#                 offset += limit
-                
-#             else:
-#                 logger.error(f'Error: {response.status_code}')
-#         except Exception as e:
-#             logger.error(f'Error parsing response: {e}')
-#             break
-    
-#     logger.info(f'Finished fetching articles from ABS-CBN.')
-#     sqlite_conn.close()
