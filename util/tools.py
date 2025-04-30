@@ -30,9 +30,16 @@ def setup_logger(log_file="app.log"):
 async def async_get(
         session,
         url: str,
-        params: dict[str, str | int] = {}, 
+        params: dict[str, str | int] = {},
+        headers: dict[str, str | int] = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3',
+                'Accept': '*/*',
+                'Connection': 'keep-alive',
+                'Content-Type': 'application/json'
+            },
+        cookies: dict[str, str | int] = {},
         **kwargs):
-    async with session.get(url, params=params) as response:
+    async with session.get(url, params=params, headers=headers, cookies=cookies) as response:
         if response.status == 200:
             result = await response.json()
         
