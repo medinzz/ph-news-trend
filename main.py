@@ -9,6 +9,7 @@ start_date = (datetime.today()).strftime('%Y-%m-%d')
 get_all_articles(start_date=start_date)
 
 ################ Getting news articles from inquirer ################
+# Inquirer API is poorly maintained and does not have all the articles
 refresh_news_articles(
     start_date=start_date,
     end_date=datetime.today().strftime('%Y-%m-%d')

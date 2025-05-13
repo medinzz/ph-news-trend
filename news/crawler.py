@@ -3,6 +3,7 @@ from doctest import debug
 import traceback
 import scrapy
 from scrapy.crawler import CrawlerProcess
+from urllib.parse import urlparse
 
 # Local lib
 from util.tools import setup_logger
@@ -145,8 +146,6 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                 'article_id': '123456',
                 'slug': 'article-title-here'
         """
-
-        from urllib.parse import urlparse
 
         
         parsed = urlparse(url)
