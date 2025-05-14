@@ -9,7 +9,7 @@ from util.sqlite import SQLiteConnection
 
 
 logger = setup_logger()
-
+sqlite = SQLiteConnection('articles.db', 'articles')
 
 async def abscbn_articles(start_date: str) -> None:
     """
@@ -40,7 +40,6 @@ async def abscbn_articles(start_date: str) -> None:
     created_date = datetime.now()
     article_info_base_url = 'https://od2-content-api.abs-cbn.com/prod/item?url='
 
-    sqlite = SQLiteConnection('articles.db', 'articles')
 
     async with aiohttp.ClientSession() as session:
         while created_date >= start_date:
@@ -134,7 +133,6 @@ async def mb_articles(start_date: str) -> None:
         'sort[0]': 'publishedAt:desc',
         'populate': '*'
     }
-    sqlite = SQLiteConnection('articles.db', 'articles')
 
     start_date = datetime.strptime(start_date, '%Y-%m-%d')
     publish_date = datetime.now()
@@ -225,7 +223,6 @@ async def rappler_articles(start_date: str) -> None:
         'per_page': 100,
         'after': datetime.strptime(start_date, '%Y-%m-%d').isoformat(),
     }
-    sqlite = SQLiteConnection('articles.db', 'articles')
 
     async with aiohttp.ClientSession() as session:
 
@@ -272,11 +269,118 @@ async def rappler_articles(start_date: str) -> None:
                 break
 
 
+async def inquirer_articles(start_date: str) -> None:
+    """
+    Fetches articles from Inquirer API starting from a specified date, processes them, and stores them in a local SQLite database.
+    Args:
+        start_date (str): The earliest publish date (in 'YYYY-MM-DD' format) for articles to fetch.
+    Returns:
+        None
+    Behavior:
+        - Iteratively fetches paginated articles from the Inquirer API, starting from the most recent and moving backwards in time.
+        - For each article, extracts relevant fields such as category, author, tags, publish date, and content.
+        - Converts HTML content to Markdown, removing unwanted tags.
+        - Stops fetching when articles older than the specified start_date are reached.
+        - Stores each processed article as a record in the 'articles' table of the 'articles.db' SQLite database.
+        - Logs progress and status throughout the process.
+    """
+    subdomains = [
+        'newsinfo',
+        'globalnation',
+        'business',
+        'lifestyle',
+        'entertainment',
+        'technology',
+        'sports',
+        'esports',
+        'opinion',
+        'usa',
+        'bandera',
+        'cebudailynews',
+        'pop'
+        ]
+    
+    # For content cleaning
+    unwanted_ids = ['billboard_article', 'article-new-featured', 'taboola-mid-article-thumbnails', 'taboola-mid-article-thumbnails-stream', 'fb-root']
+    unwanted_classes = ['ztoop', 'sib-form', 'cdn_newsletter']
+    unwanted_tags = ['script', 'style']
+    
+    
+    async with aiohttp.ClientSession() as session:
+        for subdomain in subdomains:
+            base_url = f'https://{subdomain}.inquirer.net/wp-json/wp/v2/'
+            page = 1
+            params = {
+                'page': page,
+                'per_page': 100,
+                'after': datetime.strptime(start_date, '%Y-%m-%d').isoformat(),
+            }
+            while True:
+                try:
+                    params['page'] = page
+                    articles = await async_get(
+                        session, 
+                        url = f'{base_url}posts', 
+                        params=params)
+                    logger.info(f'Fetched {len(articles)} articles from Inquirer at {subdomain} subdomain. Page: {page}')
+
+                    for article in articles:
+                        article_content = html_to_markdown(
+                            article.get('content', {}).get(
+                                'rendered', 'No content found'),
+                            unwanted_tags=['img', 'figure', 'iframe']
+                        )
+
+                        tags_tasks = [
+                            async_get(
+                                session,
+                                url=f'{base_url}tags/{tag_id}')
+                            for tag_id in article.get('tags', [])
+                        ]
+                        tags = await asyncio.gather(*tags_tasks)
+
+                        byline_tasks = [
+                            async_get(
+                                session,
+                                url=f'{base_url}byline/{byline_id}')
+                            for byline_id in article.get('byline', [])
+                        ]
+                        bylines = await asyncio.gather(*byline_tasks)
+
+                        sqlite.insert_record({
+                            'id': article.get('id'),
+                            'source': 'inquirer',
+                            'url': article.get('link'),
+                            'category': subdomain,
+                            'title': article.get('title', {}).get('rendered', 'No title found'),
+                            'author': ','.join(byline.get('name', '') for byline in bylines if byline),
+                            'date': article.get('date').split('T')[0],
+                            'publish_time': datetime.strptime(
+                                article.get(
+                                    'date',
+                                    ''),
+                                '%Y-%m-%dT%H:%M:%S').strftime('%Y-%m-%d %H:%M:%S'),
+                            'tags': ','.join(tag.get('slug', '') for tag in tags if tag),
+                            'cleaned_content': article_content,
+                        })
+
+                    page += 1
+                except Exception as e:
+                    logger.error(e)
+                    break
+    
+            page = 1 # reset page number for the next subdomain
+            logger.info(f'Finished fetching articles from {subdomain} subdomain.')
+    
+    
 def get_all_articles(start_date: str) -> None:
     """
     Fetch articles from ABS-CBN and store them in a SQLite database.
     """
     loop = asyncio.get_event_loop()
     loop.run_until_complete(abscbn_articles(start_date))
-    loop.run_until_complete(mb_articles(start_date))
     loop.run_until_complete(rappler_articles(start_date))
+    loop.run_until_complete(inquirer_articles(start_date))
+    loop.close()
+
+

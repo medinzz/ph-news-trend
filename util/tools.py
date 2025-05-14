@@ -32,10 +32,10 @@ async def async_get(
         url: str,
         params: dict[str, str | int] = {},
         headers: dict[str, str | int] = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3',
-                'Accept': '*/*',
-                'Connection': 'keep-alive',
-                'Content-Type': 'application/json'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br', # aiohttp handles decompression automatically
             },
         cookies: dict[str, str | int] = {},
         **kwargs):
@@ -49,8 +49,7 @@ async def async_get(
             
             return result
         else:
-            raise Exception(f"Error fetching {url}: {response.status}")
-        
+            raise Exception(f"Error fetching {url}: Status: {response.status}")
 ################### CONVERT HTML RAW CONTENT TO MARKDOWN ###################
 def html_to_markdown(
         html: str,
@@ -81,7 +80,9 @@ def html_to_markdown(
     cleaned_html = str(soup)
 
     html2md = html2text.HTML2Text()
-    html2md.ignore_images = True
     html2md.body_width = 0
+    html2md.ignore_links = True
+    html2md.ignore_images = True
+    html2md.ignore_emphasis = True
 
     return html2md.handle(cleaned_html)
