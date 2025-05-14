@@ -8,15 +8,31 @@ This project is a news crawler designed to gather and analyze the latest news in
 
 The project is currently under development. The following milestones have been reached:
 
--   **Crawler for Inquirer.net:** A functional crawler has been implemented to extract news articles from [inquirer.net](https://www.inquirer.net/).
+-   ~~**Crawler for Inquirer.net:** A functional crawler has been implemented to extract news articles from [inquirer.net](https://www.inquirer.net/).~~
 
 
 -   **Integration of the following news outlets using their API**
     -   [ABS-CBN News](https://od2-content-api.abs-cbn.com/prod/latest?sectionId=nation&brand=OD&partner=imp-01&limit=8&offset=undefined) 
-    -   [Manila Bulletin](https://admin.mb.com.ph/api/articles) 
+    -   [Rappler](https://www.rappler.com/wp-json/wp/v2/posts)
+    -   **Inquier** - Inquirer has different subdomains for their WP API:
+        - [newsinfo](https://newsinfo.inquirer.net/wp-json/wp/v2/posts)
+        - [globalnation](https://globalnation.inquirer.net/wp-json/wp/v2/posts)
+        - [business](https://business.inquirer.net/wp-json/wp/v2/posts)
+        - [lifestyle](https://lifestyle.inquirer.net/wp-json/wp/v2/posts)
+        - [entertainment](https://entertainment.inquirer.net/wp-json/wp/v2/posts)
+        - [technology](https://technology.inquirer.net/wp-json/wp/v2/posts)
+        - [sports](https://sports.inquirer.net/wp-json/wp/v2/posts)
+        - [esports](https://esports.inquirer.net/wp-json/wp/v2/posts)
+        - [opinion](https://opinion.inquirer.net/wp-json/wp/v2/posts)
+        - [usa](https://usa.inquirer.net/wp-json/wp/v2/posts)
+        - [bandera](https://bandera.inquirer.net/wp-json/wp/v2/posts)
+        - [cebudailynews](https://cebudailynews.inquirer.net/wp-json/wp/v2/posts)
+        - [pop](https://pop.inquirer.net/wp-json/wp/v2/posts)
 -   **Integration of Multiple Sources (In Progress):** Work is underway to incorporate additional news sources, including:
-    -   [GMA Network](https://data2.gmanetwork.com/gno/widgets/grid_reverse_listing/just_in/14017.gz) - API
-    -   [Rappler](https://www.rappler.com/) - Unidentified
+    -   [Manila Bulletin](https://mb.com.ph/api/pb/fetch-articles-paginated?limit=4&hide_widget_in_pagination=1&page=100&section_id=25) - API 
+        - the parameter: `page` is only at 100 max.
+        - limit can be exploited to increase the articles returned. But, takes a lot of time.
+
 
 
 ## Planned Features
