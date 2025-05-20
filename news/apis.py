@@ -1,3 +1,4 @@
+import traceback
 import asyncio
 import aiohttp
 
@@ -27,7 +28,7 @@ async def abscbn_articles(start_date: str) -> None:
         - The function logs progress and stops when articles older than the start date are encountered.
     """
     url = 'https://od2-content-api.abs-cbn.com/prod/latest'
-    limit = 1000
+    limit = 100
     offset = 0
     params = {
         # 'sectionId': 'news',
@@ -137,6 +138,8 @@ async def mb_articles(start_date: str) -> None:
     start_date = datetime.strptime(start_date, '%Y-%m-%d')
     publish_date = datetime.now()
 
+    current_article = {}
+
     async with aiohttp.ClientSession() as session:
 
         while publish_date >= start_date:
@@ -184,7 +187,7 @@ async def mb_articles(start_date: str) -> None:
                     logger.info('Reached articles older than start_date')
                     break
             
-                sqlite.insert_record({
+                current_article = {
                     'id': article.get('id'),
                     'source': 'manila bulletin',
                     'url': 'https://mb.com.ph/' + created_date + '/' + attributes.get('slug'),
@@ -195,8 +198,8 @@ async def mb_articles(start_date: str) -> None:
                     'publish_time': publish_date.strftime('%Y-%m-%d %H:%M:%S'),
                     'tags': ','.join(tags),
                     'cleaned_content': article_content,
-                })
-
+                }
+                sqlite.insert_record(current_article)
             page += 1
 
 
@@ -224,6 +227,8 @@ async def rappler_articles(start_date: str) -> None:
         'after': datetime.strptime(start_date, '%Y-%m-%d').isoformat(),
     }
 
+    current_article = {}
+
     async with aiohttp.ClientSession() as session:
 
         while True:
@@ -246,7 +251,7 @@ async def rappler_articles(start_date: str) -> None:
                     ]
                     tags = await asyncio.gather(*tags_tasks)
 
-                    sqlite.insert_record({
+                    current_article = {
                         'id': article.get('id'),
                         'source': 'rappler',
                         'url': article.get('link'),
@@ -261,12 +266,15 @@ async def rappler_articles(start_date: str) -> None:
                             '%Y-%m-%dT%H:%M:%S').strftime('%Y-%m-%d %H:%M:%S'),
                         'tags': ','.join(tag.get('slug', '') for tag in tags if tag),
                         'cleaned_content': article_content,
-                    })
+                    }
+
+                    sqlite.insert_record(current_article)
 
                 page += 1
             except Exception as e:
                 logger.error(e)
-                break
+                logger.error(traceback.format_exc())
+                logger.error('############ Error Occurred ############')
 
 
 async def inquirer_articles(start_date: str) -> None:
@@ -305,6 +313,7 @@ async def inquirer_articles(start_date: str) -> None:
     unwanted_classes = ['ztoop', 'sib-form', 'cdn_newsletter']
     unwanted_tags = ['script', 'style']
     
+    current_article = {}
     
     async with aiohttp.ClientSession() as session:
         for subdomain in subdomains:
@@ -347,7 +356,7 @@ async def inquirer_articles(start_date: str) -> None:
                         ]
                         bylines = await asyncio.gather(*byline_tasks)
 
-                        sqlite.insert_record({
+                        current_article = {
                             'id': article.get('id'),
                             'source': 'inquirer',
                             'url': article.get('link'),
@@ -362,11 +371,15 @@ async def inquirer_articles(start_date: str) -> None:
                                 '%Y-%m-%dT%H:%M:%S').strftime('%Y-%m-%d %H:%M:%S'),
                             'tags': ','.join(tag.get('slug', '') for tag in tags if tag),
                             'cleaned_content': article_content,
-                        })
+                        }
+
+                        sqlite.insert_record(current_article)
 
                     page += 1
                 except Exception as e:
                     logger.error(e)
+                    logger.error(traceback.format_exc())
+                    logger.error('############ Error Occurred ############')
                     break
     
             page = 1 # reset page number for the next subdomain

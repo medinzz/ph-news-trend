@@ -49,7 +49,7 @@ async def async_get(
             
             return result
         else:
-            raise Exception(f"Error fetching {url}: Status: {response.status}")
+            raise Exception(f"Error fetching {url}: Status: {response.status}, params: {params}")
 ################### CONVERT HTML RAW CONTENT TO MARKDOWN ###################
 def html_to_markdown(
         html: str,

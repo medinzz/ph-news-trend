@@ -3,7 +3,7 @@ from news.crawler import refresh_news_articles
 from news.apis import get_all_articles
 
 
-start_date = (datetime.today()).strftime('%Y-%m-%d') 
+start_date = (datetime.today() - timedelta(days=30)).strftime('%Y-%m-%d') 
 
 ################ Getting news articles from news outlets' APIs ################
 get_all_articles(start_date=start_date)
