@@ -61,7 +61,7 @@ async def abscbn_articles(start_date: str) -> None:
                     article.get(
                         'createdDateFull',
                         ''),
-                    '%Y-%m-%dT%H:%M:%SZ')
+                    '%Y-%m-%dT%H:%M:%S.%fZ')
                 if created_date < start_date:
                     logger.info('Reached articles older than start_date')
                     break
