@@ -52,15 +52,20 @@ async def async_get(
             raise Exception(f"Error fetching {url}: Status: {response.status}, params: {params}")
 ################### CONVERT HTML RAW CONTENT TO MARKDOWN ###################
 def html_to_markdown(
-        html: str,
+        html_content: str,  # Changed from 'html' to 'html_content'
         unwanted_ids: list[str] = [],
         unwanted_classes: list[str] = [],
         unwanted_tags: list[str] = []) -> str:
     
+    import html
     import html2text
     from bs4 import BeautifulSoup
-
-    soup = BeautifulSoup(html, 'html.parser')
+    import re
+    
+    # Unescape HTML entities
+    unescaped_html = html.unescape(html_content)  # Now using html_content parameter
+    
+    soup = BeautifulSoup(unescaped_html, 'html.parser')
 
     # Remove by id
     for id in unwanted_ids:
@@ -77,12 +82,18 @@ def html_to_markdown(
         for tag in soup.find_all(tag_str):
             tag.decompose()
 
-    cleaned_html = str(soup)
-
+    # Convert to markdown
     html2md = html2text.HTML2Text()
     html2md.body_width = 0
     html2md.ignore_links = True
     html2md.ignore_images = True
     html2md.ignore_emphasis = True
-
-    return html2md.handle(cleaned_html)
+    html2md.skip_internal_links = True
+    
+    markdown_content = html2md.handle(str(soup))
+    
+    # Clean up extra whitespace
+    markdown_content = re.sub(r'\n{3,}', '\n\n', markdown_content)
+    markdown_content = re.sub(r' +', ' ', markdown_content)
+    
+    return markdown_content.strip()
