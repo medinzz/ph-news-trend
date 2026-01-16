@@ -74,10 +74,7 @@ news/
 
 util/
 ├── storage_backend.py      # Storage backend implementations
-├── bigquery.py            # BigQuery utility functions (legacy)
-├── sqlite.py              # SQLite connection (legacy)
 ├── tools.py               # General utilities
-├── const.py               # Constants (GCP_PROJECT_ID, etc.)
 config.py                  # Configuration file
 main.py                    # Entry point script
 ```
