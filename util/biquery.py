@@ -1,10 +1,17 @@
+import os
+from dotenv import load_dotenv
 from google.cloud import bigquery
 import pandas as pd
 from typing import List, Dict, Any
 
 # Local libraries
 from util.tools import setup_logger
-from util.const import GCP_PROJECT_ID
+
+# load environment variables from .env file
+load_dotenv()
+
+# Get the value, returns None if not set
+GCP_PROJECT_ID = os.getenv('GCP_PROJECT_ID')
 
 client = bigquery.Client(project=GCP_PROJECT_ID)
 logger = setup_logger()

@@ -6,32 +6,24 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 from util.tools import setup_logger, async_get, html_to_markdown
-from util.sqlite import SQLiteConnection
+from util.storage_backend import get_storage_backend, StorageBackend
 
 
 logger = setup_logger()
-sqlite = SQLiteConnection('articles.db', 'articles')
+
+# Global storage backend - will be set by get_all_articles
+storage: StorageBackend = None
+
 
 async def abscbn_articles(start_date: str) -> None:
     """
     Fetches and stores ABS-CBN news articles published since a given start date.
-    This asynchronous function retrieves articles from the ABS-CBN content API, filters them by the specified start date,
-    fetches detailed article information, converts the article body to Markdown (excluding unwanted tags), and inserts the
-    processed articles into a local SQLite database.
-    Args:
-        start_date (str): The earliest publication date (inclusive) for articles to fetch, in 'YYYY-MM-DD' format.
-    Returns:
-        None
-    Behavior:
-        - Fetches articles in batches using pagination.
-        - Processes articles with a 'slugline_url'.
-        - The function logs progress and stops when articles older than the start date are encountered.
+    Uses the global storage backend (SQLite or BigQuery).
     """
     url = 'https://od2-content-api.abs-cbn.com/prod/latest'
     limit = 100
     offset = 0
     params = {
-        # 'sectionId': 'news',
         'brand': 'OD',
         'partner': 'imp-01',
         'limit': limit,
@@ -40,7 +32,6 @@ async def abscbn_articles(start_date: str) -> None:
     start_date = datetime.strptime(start_date, '%Y-%m-%d')
     created_date = datetime.now()
     article_info_base_url = 'https://od2-content-api.abs-cbn.com/prod/item?url='
-
 
     async with aiohttp.ClientSession() as session:
         while created_date >= start_date:
@@ -58,9 +49,7 @@ async def abscbn_articles(start_date: str) -> None:
             filtered_articles = []
             for article in articles:
                 created_date = datetime.strptime(
-                    article.get(
-                        'createdDateFull',
-                        ''),
+                    article.get('createdDateFull', ''),
                     '%Y-%m-%dT%H:%M:%S.%fZ')
                 if created_date < start_date:
                     logger.info('Reached articles older than start_date')
@@ -71,8 +60,7 @@ async def abscbn_articles(start_date: str) -> None:
             tasks = [
                 async_get(
                     session,
-                    url=article_info_base_url +
-                    item.get('slugline_url', 'no_url'),
+                    url=article_info_base_url + item.get('slugline_url', 'no_url'),
                     id=item.get('_id'),
                     source='abs-cbn',
                     slugline_url=item.get('slugline_url'),
@@ -87,14 +75,13 @@ async def abscbn_articles(start_date: str) -> None:
             ]
             details = await asyncio.gather(*tasks)
 
-            # Log articles and their details
+            # Insert articles using the storage backend
             for article in details:
                 article_content = html_to_markdown(
-                    article['data'].get('body_html') if article.get(
-                        'data') else 'No content found',
+                    article['data'].get('body_html') if article.get('data') else 'No content found',
                     unwanted_tags=['img', 'figure', 'iframe']
                 )
-                sqlite.insert_record({
+                storage.insert_record({
                     'id': article.get('id'),
                     'source': article.get('source'),
                     'url': 'https://www.abs-cbn.com/' + article.get('slugline_url'),
@@ -107,49 +94,27 @@ async def abscbn_articles(start_date: str) -> None:
                     'cleaned_content': article_content,
                 })
 
-            logger.info(f'Inserted {len(details)} ABS-CBN articles into the database.')
-
+            logger.info(f'Inserted {len(details)} ABS-CBN articles into storage.')
             offset += limit
 
 
 async def manila_bulletin_articles(start_date: str, section_ids: list = None) -> None:
     """
-    Fetches articles from Manila Bulletin's API starting from a given date, processes their content, and stores them in a local SQLite database.
-    
-    Args:
-        start_date (str): The start date in 'YYYY-MM-DD' format from which to fetch articles.
-        section_ids (list, optional): List of section IDs to fetch. If None, fetches all sections.
-                                      Available IDs: 25-31 (main sections)
-    
-    Returns:
-        None
-    
-    Behavior:
-        - Iteratively fetches paginated articles from Manila Bulletin's API after the specified start date.
-        - First gets article summaries from fetch-articles-paginated endpoint.
-        - Then fetches full article details using the article endpoint with cms_article_id.
-        - Converts article HTML content to Markdown, removing unwanted tags.
-        - Extracts relevant metadata (ID, source, URL, category, title, date, publish time, tags, cleaned content).
-        - Inserts processed articles into a local SQLite database.
-        - Logs progress and errors.
+    Fetches articles from Manila Bulletin's API and stores them using the global storage backend.
     """
-    
-    # Default to all main sections if not specified
     if section_ids is None:
-        section_ids = [25, 26, 27, 28, 29, 30, 31]  # Philippines, Business, World, Lifestyle, Entertainment, Sports, Opinion
+        section_ids = [25, 26, 27, 28, 29, 30, 31]
     
     start_datetime = datetime.strptime(start_date, '%Y-%m-%d')
     current_article = {}
 
     async with aiohttp.ClientSession() as session:
-        
         for section_id in section_ids:
             page = 1
             logger.info(f'Starting to fetch articles from section_id: {section_id}')
             
             while True:
                 try:
-                    # Step 1: Fetch paginated article summaries
                     articles_url = 'https://mb.com.ph/api/pb/fetch-articles-paginated'
                     params = {
                         'page': page,
@@ -185,7 +150,7 @@ async def manila_bulletin_articles(start_date: str, section_ids: list = None) ->
                     
                     logger.info(f'Processing {len(filtered_articles)} articles after date filter')
                     
-                    # Step 2: Fetch full article details for each filtered article
+                    # Fetch full article details
                     for article_summary in filtered_articles:
                         try:
                             cms_article_id = article_summary.get('cms_article_id')
@@ -194,7 +159,6 @@ async def manila_bulletin_articles(start_date: str, section_ids: list = None) ->
                                 logger.warning(f'Missing cms_article_id for article: {article_summary.get("title")}')
                                 continue
                             
-                            # Fetch full article details
                             article_detail_url = f'https://mb.com.ph/api/pb/article/{cms_article_id}'
                             article_detail = await async_get(session, article_detail_url)
                             
@@ -222,24 +186,19 @@ async def manila_bulletin_articles(start_date: str, section_ids: list = None) ->
                             else:
                                 tags_list = []
                             
-                            # Prepare article data for database
-                            current_article = {
+                            # Insert using storage backend
+                            storage.insert_record({
                                 'id': article_data.get('cms_article_id'),
                                 'source': 'manila_bulletin',
                                 'url': article_data.get('link', ''),
                                 'category': article_data.get('section_name', 'Unknown'),
-                                'subcategory': article_data.get('sub_section_name', ''),
                                 'title': article_data.get('title', 'No title found'),
                                 'author': article_data.get('author_name', 'Unknown'),
                                 'date': article_data.get('publish_time', '').split(' ')[0] if article_data.get('publish_time') else None,
                                 'publish_time': article_data.get('publish_time', ''),
                                 'tags': ','.join(tags_list),
                                 'cleaned_content': article_content,
-                                'image_url': article_data.get('image', {}).get('full', ''),
-                            }
-                            
-                            # Insert into database
-                            sqlite.insert_record(current_article)
+                            })
                             
                         except Exception as e:
                             logger.error(f'Error processing article cms_article_id {cms_article_id}: {e}')
@@ -247,8 +206,6 @@ async def manila_bulletin_articles(start_date: str, section_ids: list = None) ->
                             continue
                     
                     page += 1
-                    
-                    # Add a small delay to avoid overwhelming the server
                     await asyncio.sleep(0.5)
                     
                 except Exception as e:
@@ -260,23 +217,10 @@ async def manila_bulletin_articles(start_date: str, section_ids: list = None) ->
     logger.info('Completed fetching all Manila Bulletin articles')
 
 
-
 async def rappler_articles(start_date: str) -> None:
     """
-    Fetches articles from Rappler's public WordPress API starting from a given date, processes their content, and stores them in a local SQLite database.
-    Args:
-        start_date (str): The start date in 'YYYY-MM-DD' format from which to fetch articles.
-    Returns:
-        None
-    Behavior:
-        - Iteratively fetches paginated articles from Rappler's API after the specified start date.
-        - Converts article HTML content to Markdown, removing unwanted tags.
-        - Fetches and aggregates tag slugs for each article.
-        - Extracts relevant metadata (ID, source, URL, category, title, date, publish time, tags, cleaned content).
-        - Inserts processed articles into a local SQLite database.
-        - Logs progress and errors.
+    Fetches articles from Rappler's API and stores them using the global storage backend.
     """
-
     url = 'https://www.rappler.com/wp-json/wp/v2/posts'
     page = 1
     params = {
@@ -288,7 +232,6 @@ async def rappler_articles(start_date: str) -> None:
     current_article = {}
 
     async with aiohttp.ClientSession() as session:
-
         while True:
             try:
                 params['page'] = page
@@ -297,8 +240,7 @@ async def rappler_articles(start_date: str) -> None:
 
                 for article in articles:
                     article_content = html_to_markdown(
-                        article.get('content', {}).get(
-                            'rendered', 'No content found'),
+                        article.get('content', {}).get('rendered', 'No content found'),
                         unwanted_tags=['img', 'figure', 'iframe']
                     )
                     tags_tasks = [
@@ -309,7 +251,7 @@ async def rappler_articles(start_date: str) -> None:
                     ]
                     tags = await asyncio.gather(*tags_tasks)
 
-                    current_article = {
+                    storage.insert_record({
                         'id': article.get('id'),
                         'source': 'rappler',
                         'url': article.get('link'),
@@ -318,148 +260,45 @@ async def rappler_articles(start_date: str) -> None:
                         'author': None,
                         'date': article.get('date').split('T')[0],
                         'publish_time': datetime.strptime(
-                            article.get(
-                                'date',
-                                ''),
+                            article.get('date', ''),
                             '%Y-%m-%dT%H:%M:%S').strftime('%Y-%m-%d %H:%M:%S'),
                         'tags': ','.join(tag.get('slug', '') for tag in tags if tag),
                         'cleaned_content': article_content,
-                    }
-
-                    sqlite.insert_record(current_article)
+                    })
 
                 page += 1
-                
-                # Add a small delay to avoid overwhelming the server
                 await asyncio.sleep(0.5)
                 
             except Exception as e:
                 logger.error('############ Error Occurred ############')
                 logger.error(e)
                 logger.error(traceback.format_exc())
-                break; 
+                break
 
 
-# Not working as of now - the API requires authentication
-#
-# async def inquirer_articles(start_date: str) -> None:
-#     """
-#     Fetches articles from Inquirer API starting from a specified date, processes them, and stores them in a local SQLite database.
-#     Args:
-#         start_date (str): The earliest publish date (in 'YYYY-MM-DD' format) for articles to fetch.
-#     Returns:
-#         None
-#     Behavior:
-#         - Iteratively fetches paginated articles from the Inquirer API, starting from the most recent and moving backwards in time.
-#         - For each article, extracts relevant fields such as category, author, tags, publish date, and content.
-#         - Converts HTML content to Markdown, removing unwanted tags.
-#         - Stops fetching when articles older than the specified start_date are reached.
-#         - Stores each processed article as a record in the 'articles' table of the 'articles.db' SQLite database.
-#         - Logs progress and status throughout the process.
-#     """
-#     subdomains = [
-#         'newsinfo',
-#         'globalnation',
-#         'business',
-#         'lifestyle',
-#         'entertainment',
-#         'technology',
-#         'sports',
-#         'esports',
-#         'opinion',
-#         'usa',
-#         'bandera',
-#         'cebudailynews',
-#         'pop'
-#         ]
-    
-#     # For content cleaning
-#     unwanted_ids = ['billboard_article', 'article-new-featured', 'taboola-mid-article-thumbnails', 'taboola-mid-article-thumbnails-stream', 'fb-root']
-#     unwanted_classes = ['ztoop', 'sib-form', 'cdn_newsletter']
-#     unwanted_tags = ['script', 'style']
-    
-#     current_article = {}
-    
-#     async with aiohttp.ClientSession() as session:
-#         for subdomain in subdomains:
-#             base_url = f'https://{subdomain}.inquirer.net/wp-json/wp/v2/'
-#             page = 1
-#             params = {
-#                 'page': page,
-#                 'per_page': 100,
-#                 'after': datetime.strptime(start_date, '%Y-%m-%d').isoformat(),
-#             }
-#             while True:
-#                 try:
-#                     params['page'] = page
-#                     articles = await async_get(
-#                         session, 
-#                         url = f'{base_url}posts', 
-#                         params=params)
-#                     logger.info(f'Fetched {len(articles)} articles from Inquirer at {subdomain} subdomain. Page: {page}')
-
-#                     for article in articles:
-#                         article_content = html_to_markdown(
-#                             article.get('content', {}).get(
-#                                 'rendered', 'No content found'),
-#                             unwanted_tags=['img', 'figure', 'iframe']
-#                         )
-
-#                         tags_tasks = [
-#                             async_get(
-#                                 session,
-#                                 url=f'{base_url}tags/{tag_id}')
-#                             for tag_id in article.get('tags', [])
-#                         ]
-#                         tags = await asyncio.gather(*tags_tasks)
-
-#                         byline_tasks = [
-#                             async_get(
-#                                 session,
-#                                 url=f'{base_url}byline/{byline_id}')
-#                             for byline_id in article.get('byline', [])
-#                         ]
-#                         bylines = await asyncio.gather(*byline_tasks)
-
-#                         current_article = {
-#                             'id': article.get('id'),
-#                             'source': 'inquirer',
-#                             'url': article.get('link'),
-#                             'category': subdomain,
-#                             'title': article.get('title', {}).get('rendered', 'No title found'),
-#                             'author': ','.join(byline.get('name', '') for byline in bylines if byline),
-#                             'date': article.get('date').split('T')[0],
-#                             'publish_time': datetime.strptime(
-#                                 article.get(
-#                                     'date',
-#                                     ''),
-#                                 '%Y-%m-%dT%H:%M:%S').strftime('%Y-%m-%d %H:%M:%S'),
-#                             'tags': ','.join(tag.get('slug', '') for tag in tags if tag),
-#                             'cleaned_content': article_content,
-#                         }
-
-#                         sqlite.insert_record(current_article)
-
-#                     page += 1
-#                 except Exception as e:
-#                     logger.error('############ Error Occurred ############')
-#                     logger.error(e)
-#                     logger.error(traceback.format_exc())
-#                     break
-    
-#             page = 1 # reset page number for the next subdomain
-#             logger.info(f'Finished fetching articles from {subdomain} subdomain.')
-    
-    
-def get_all_articles(start_date: str) -> None:
+def get_all_articles(start_date: str, backend: str = 'sqlite', **backend_kwargs) -> None:
     """
-    Fetch articles from ABS-CBN and store them in a SQLite database.
+    Fetch articles from multiple news sources and store them using the specified backend.
+    
+    Args:
+        start_date: Start date in 'YYYY-MM-DD' format
+        backend: Storage backend to use ('sqlite' or 'bigquery')
+        **backend_kwargs: Additional arguments for the storage backend
+            For SQLite: db_path='articles.db', table_name='articles'
+            For BigQuery: dataset_id='news_data', table_name='articles'
     """
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(abscbn_articles(start_date))
-    loop.run_until_complete(rappler_articles(start_date))
-    loop.run_until_complete(manila_bulletin_articles(start_date))
-    # loop.run_until_complete(inquirer_articles(start_date))
-    loop.close()
-
-
+    global storage
+    
+    # Initialize storage backend
+    storage = get_storage_backend(backend, **backend_kwargs)
+    logger.info(f"Using {backend} storage backend")
+    
+    try:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(abscbn_articles(start_date))
+        loop.run_until_complete(rappler_articles(start_date))
+        loop.run_until_complete(manila_bulletin_articles(start_date))
+    finally:
+        # Clean up storage connection
+        storage.close()
+        loop.close()
