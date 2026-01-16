@@ -9,3 +9,4 @@ app.log
 *.sqlite3
 
 util/const.py
+.env
