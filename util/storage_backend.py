@@ -34,6 +34,11 @@ class StorageBackend(ABC):
         pass
     
     @abstractmethod
+    def run_query(self, query: str, **kwargs):
+        """Execute a SQL query."""
+        pass
+    
+    @abstractmethod
     def close(self) -> None:
         """Close the storage connection."""
         pass
@@ -114,6 +119,36 @@ class SQLiteBackend(StorageBackend):
             logger.error(f"Error fetching records from SQLite: {e}")
             return []
     
+    def run_query(self, query: str, params: tuple = None) -> List[Any]:
+        """
+        Execute a SQL query and return results.
+        
+        Args:
+            query: SQL query string
+            params: Optional tuple of parameters for parameterized queries
+            
+        Returns:
+            List of results for SELECT queries, empty list for other queries
+        """
+        try:
+            if params:
+                self.cursor.execute(query, params)
+            else:
+                self.cursor.execute(query)
+            
+            # If it's a SELECT query, return results
+            if query.strip().upper().startswith('SELECT'):
+                return self.cursor.fetchall()
+            else:
+                # For INSERT, UPDATE, DELETE, commit and return empty list
+                self.conn.commit()
+                logger.info(f"Query executed: {query[:50]}...")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error executing query in SQLite: {e}")
+            return []
+    
     def close(self) -> None:
         """Close the SQLite database connection."""
         self.conn.close()
@@ -172,6 +207,15 @@ class BigQueryBackend(StorageBackend):
         except Exception as e:
             logger.error(f'Table creation failed: {e}')
     
+
+    def insert_record(self, item: Dict[str, Any]) -> None:
+        """Add record to buffer for batch insert."""
+        self.buffer.append(item)
+        
+        # Flush buffer when it reaches the threshold
+        if len(self.buffer) >= self.buffer_size:
+            self._flush_buffer()
+            
     def fetch_all(self, query: str) -> List[Any]:
         """Fetch all records from BigQuery."""
         try:
@@ -181,14 +225,36 @@ class BigQueryBackend(StorageBackend):
         except Exception as e:
             logger.error(f"Error fetching records from BigQuery: {e}")
             return []
-
-    def insert_record(self, item: Dict[str, Any]) -> None:
-        """Add record to buffer for batch insert."""
-        self.buffer.append(item)
         
-        # Flush buffer when it reaches the threshold
-        if len(self.buffer) >= self.buffer_size:
-            self._flush_buffer()
+    def run_query(self, query: str) -> pd.DataFrame:
+        """
+        Execute a BigQuery SQL query and return results as DataFrame.
+        
+        Args:
+            query: SQL query string
+            
+        Returns:
+            pandas DataFrame with query results, empty DataFrame on error
+        """
+        try:
+            query_job = self.client.query(query)
+            results = query_job.result()
+            df = results.to_dataframe()
+            logger.info(f"Query executed successfully, returned {len(df)} rows")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error executing query in BigQuery: {e}")
+            return pd.DataFrame()
+    
+    def close(self) -> None:
+        """Flush remaining buffer and close connection."""
+        # Insert any remaining records
+        self._flush_buffer()  
+        # update the table's expiration time by refreshing the table
+        self.run_query(f'CREATE OR REPLACE TABLE {self.table_id} AS SELECT * FROM {self.table_id};')
+        self.client.close()
+        logger.info("BigQuery connection closed.")
     
     def _flush_buffer(self) -> None:
         """Insert all buffered records using load_table_from_dataframe."""
@@ -227,12 +293,6 @@ class BigQueryBackend(StorageBackend):
         except Exception as e:
             logger.error(f"Error batch inserting into BigQuery: {e}")
             self.buffer = []  # Clear buffer even on error to avoid re-trying bad data
-    
-    def close(self) -> None:
-        """Flush remaining buffer and close connection."""
-        self._flush_buffer()  # Insert any remaining records
-        self.client.close()
-        logger.info("BigQuery connection closed.")
 
 
 def get_storage_backend(backend_type: str = 'sqlite', **kwargs) -> StorageBackend:
