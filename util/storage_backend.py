@@ -10,6 +10,9 @@ import pandas as pd
 from google.cloud import bigquery
 import os
 from dotenv import load_dotenv
+import asyncio
+import threading
+import traceback
 
 from util.tools import setup_logger
 
@@ -156,7 +159,7 @@ class SQLiteBackend(StorageBackend):
 
 
 class BigQueryBackend(StorageBackend):
-    """BigQuery storage backend implementation with batch insert support."""
+    """BigQuery storage backend implementation with queue-based batch insert."""
     
     def __init__(self, dataset_id: str, table_name: str, buffer_size: int):
         self.dataset_id = dataset_id
@@ -166,11 +169,19 @@ class BigQueryBackend(StorageBackend):
         
         # Buffer for batch inserts
         self.buffer = []
-        self.buffer_size = 100  # Insert every 100 records
+        self.buffer_size = buffer_size
+        
+        # Queue-based processing
+        self._queue = asyncio.Queue(maxsize=1000)
+        self._processor_task = None
+        self._is_processing = False
         
         logger.info(f"Connected to BigQuery dataset {dataset_id}.")
         self._create_dataset_and_table()
-    
+        
+        # Start the background processor
+        self._start_processor()
+        
     
     def _create_dataset_and_table(self):
         """Create the dataset and table if they don't exist."""
@@ -207,15 +218,6 @@ class BigQueryBackend(StorageBackend):
         except Exception as e:
             logger.error(f'Table creation failed: {e}')
     
-
-    def insert_record(self, item: Dict[str, Any]) -> None:
-        """Add record to buffer for batch insert."""
-        self.buffer.append(item)
-        
-        # Flush buffer when it reaches the threshold
-        if len(self.buffer) >= self.buffer_size:
-            self._flush_buffer()
-            
     def fetch_all(self, query: str) -> List[Any]:
         """Fetch all records from BigQuery."""
         try:
@@ -247,53 +249,191 @@ class BigQueryBackend(StorageBackend):
             logger.error(f"Error executing query in BigQuery: {e}")
             return pd.DataFrame()
     
-    def close(self) -> None:
-        """Flush remaining buffer and close connection."""
-        # Insert any remaining records
-        self._flush_buffer()  
-        # update the table's expiration time by refreshing the table
-        self.run_query(f'CREATE OR REPLACE TABLE {self.table_id} AS SELECT * FROM {self.table_id};')
-        self.client.close()
-        logger.info("BigQuery connection closed.")
+    def insert_record(self, item: Dict[str, Any]) -> None:
+        """Add record to queue for processing (non-blocking, synchronous)."""
+        try:
+            # Put item in queue without blocking
+            # This is safe to call from sync code
+            asyncio.get_event_loop().call_soon_threadsafe(
+                self._queue.put_nowait, item
+            )
+        except Exception as e:
+            logger.error(f"Error adding item to queue: {e}")
     
-    def _flush_buffer(self) -> None:
-        """Insert all buffered records using load_table_from_dataframe."""
+    async def _flush_buffer_async(self) -> None:
+        """Async version of flush buffer."""
         if not self.buffer:
             return
         
         try:
-            import pandas as pd
-            
             # Convert buffer to DataFrame
             df = pd.DataFrame(self.buffer)
             
-            # Rename cleaned_content to content to match schema
+            # Convert id to string
+            if 'id' in df.columns:
+                df['id'] = df['id'].astype(str)
+            
+            # Rename cleaned_content to content
             if 'cleaned_content' in df.columns:
                 df = df.rename(columns={'cleaned_content': 'content'})
             
             # Ensure proper data types
             if 'date' in df.columns:
-                df['date'] = pd.to_datetime(df['date']).dt.date
+                df['date'] = pd.to_datetime(df['date']).dt.normalize()
             if 'publish_time' in df.columns:
                 df['publish_time'] = pd.to_datetime(df['publish_time'])
             
-            # Load to BigQuery
+            # Convert object columns to string (but exclude date/publish_time)
+            for col in df.columns:
+                if df[col].dtype == 'object' and col not in ['date', 'publish_time']:
+                    df[col] = df[col].astype(str).replace('None', None)
+            
+            # Load to BigQuery (run in thread pool to not block event loop)
             job_config = bigquery.LoadJobConfig(
                 write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
             )
             
-            job = self.client.load_table_from_dataframe(
-                df, self.table_id, job_config=job_config
+            # Run blocking BigQuery operation in thread
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,  # Use default executor
+                self._sync_load_to_bigquery,
+                df,
+                job_config
             )
-            job.result()  # Wait for completion
             
             logger.info(f'Inserted {len(self.buffer)} records into BigQuery')
             self.buffer = []  # Clear buffer
             
         except Exception as e:
             logger.error(f"Error batch inserting into BigQuery: {e}")
-            self.buffer = []  # Clear buffer even on error to avoid re-trying bad data
-
+            logger.error(traceback.format_exc())
+            self.buffer = []  # Clear buffer even on error
+    
+    
+    def _start_processor(self):
+        """Start the background queue processor."""
+        try:
+            # Get or create event loop
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop, create a new one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # Start the processor task
+        self._processor_task = asyncio.create_task(self._process_queue())
+        self._is_processing = True
+        logger.info("Background queue processor started")
+    
+    async def _process_queue(self):
+        """Background task that processes items from the queue."""
+        logger.info("Queue processor running...")
+        
+        try:
+            while self._is_processing:
+                try:
+                    # Wait for item with timeout to check _is_processing flag
+                    item = await asyncio.wait_for(self._queue.get(), timeout=1.0)
+                    
+                    if item is None:  # Sentinel value to stop
+                        logger.info("Received stop sentinel, shutting down processor")
+                        break
+                    
+                    # Add to buffer
+                    self.buffer.append(item)
+                    
+                    # Flush if buffer is full
+                    if len(self.buffer) >= self.buffer_size:
+                        logger.info(f"Buffer full ({len(self.buffer)} items), flushing...")
+                        await self._flush_buffer_async()
+                    
+                    # Mark task as done
+                    self._queue.task_done()
+                    
+                except asyncio.TimeoutError:
+                    # No item received, continue loop to check _is_processing flag
+                    continue
+                except Exception as e:
+                    logger.error(f"Error processing queue item: {e}")
+                    logger.error(traceback.format_exc())
+                    
+            logger.info(f"Queue size: {self._queue.qsize()}, Buffer size: {len(self.buffer)}")
+        
+        finally:
+            # Final flush when stopping
+            if self.buffer:
+                logger.info(f"Final flush on shutdown ({len(self.buffer)} items)")
+                await self._flush_buffer_async()
+            logger.info("Queue processor stopped")
+    
+    def _sync_load_to_bigquery(self, df, job_config):
+        """Synchronous BigQuery load (runs in thread pool)."""
+        job = self.client.load_table_from_dataframe(
+            df, self.table_id, job_config=job_config
+        )
+        job.result()  # Wait for completion
+    
+    async def _stop_processor(self):
+        """Stop the background processor gracefully."""
+        logger.info("Stopping queue processor...")
+        
+        # Signal processor to stop
+        self._is_processing = False
+        
+        # Send sentinel value
+        await self._queue.put(None)
+        
+        # Wait for all queued items to be processed
+        await self._queue.join()
+        
+        # Wait for processor task to complete
+        if self._processor_task:
+            await self._processor_task
+        
+        logger.info("Queue processor stopped successfully")
+    
+    def get_queue_status(self):
+        return {
+            'queue_size': self._queue.qsize(),
+            'buffer_size': len(self.buffer),
+            'is_processing': self._is_processing
+        }
+    
+    def close(self) -> None:
+        """Flush remaining buffer and close connection."""
+        logger.info("Closing BigQuery backend...")
+        
+        # Stop the processor (this will flush remaining items)
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If loop is running, schedule the stop
+                asyncio.ensure_future(self._stop_processor())
+            else:
+                # If loop is not running, run it
+                loop.run_until_complete(self._stop_processor())
+        except Exception as e:
+            logger.error(f"Error stopping processor: {e}")
+            # Manual flush as fallback
+            if self.buffer:
+                logger.info("Attempting manual flush...")
+                # This is sync, so we need to handle it differently
+                # For now, just log the issue
+                logger.warning(f"{len(self.buffer)} items may not have been flushed")
+        
+        # Clean up duplicates
+        try:
+            self.run_query(
+                f'CREATE OR REPLACE TABLE {self.table_id} AS '
+                f'SELECT DISTINCT * FROM {self.table_id};'
+            )
+        except Exception as e:
+            logger.error(f"Error cleaning duplicates: {e}")
+        
+        self.client.close()
+        logger.info("BigQuery connection closed.")
+        
 
 def get_storage_backend(backend_type: str = 'sqlite', **kwargs) -> StorageBackend:
     """

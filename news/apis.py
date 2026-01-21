@@ -1,6 +1,7 @@
 import traceback
 import asyncio
 import aiohttp
+import sys
 
 from datetime import datetime
 from urllib.parse import urlparse
@@ -276,29 +277,33 @@ async def rappler_articles(start_date: str) -> None:
                 break
 
 
-def get_all_articles(start_date: str, backend: str = 'sqlite', **backend_kwargs) -> None:
-    """
-    Fetch articles from multiple news sources and store them using the specified backend.
+async def get_all_articles_async(start_date: str, backend: str = 'sqlite', **backend_kwargs) -> None:
     
-    Args:
-        start_date: Start date in 'YYYY-MM-DD' format
-        backend: Storage backend to use ('sqlite' or 'bigquery')
-        **backend_kwargs: Additional arguments for the storage backend
-            For SQLite: db_path='articles.db', table_name='articles'
-            For BigQuery: dataset_id='news_data', table_name='articles'
-    """
     global storage
     
     # Initialize storage backend
     storage = get_storage_backend(backend, **backend_kwargs)
     logger.info(f"Using {backend} storage backend")
     
+    # IMPORTANT: Make storage accessible to signal handler
+    if 'main' in sys.modules:
+        sys.modules['main'].storage_instance = storage
+    
     try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(abscbn_articles(start_date))
-        loop.run_until_complete(rappler_articles(start_date))
-        loop.run_until_complete(manila_bulletin_articles(start_date))
+        # Run all scrapers simultaneously
+        await asyncio.gather(
+            # abscbn_articles(start_date),
+            # rappler_articles(start_date),
+            manila_bulletin_articles(start_date)
+        )
     finally:
         # Clean up storage connection
         storage.close()
-        loop.close()
+
+
+def get_all_articles(start_date: str, backend: str = 'sqlite', **backend_kwargs) -> None:
+    """
+    Fetch articles from multiple news sources and store them using the specified backend.
+    """
+    # Run the async version
+    asyncio.run(get_all_articles_async(start_date, backend, **backend_kwargs))
