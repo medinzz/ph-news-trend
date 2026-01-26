@@ -292,8 +292,8 @@ async def get_all_articles_async(start_date: str, backend: str = 'sqlite', **bac
     try:
         # Run all scrapers simultaneously
         await asyncio.gather(
-            # abscbn_articles(start_date),
-            # rappler_articles(start_date),
+            abscbn_articles(start_date),
+            rappler_articles(start_date),
             manila_bulletin_articles(start_date)
         )
     finally:

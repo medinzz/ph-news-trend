@@ -88,7 +88,7 @@ def main():
     
     # Override backend if specified
     if args.backend:
-        config['backend'] = args.backend
+        config = get_storage_config(args.backend)
         print(f"Backend overridden to: {args.backend}")
     
     # Show config and exit if requested

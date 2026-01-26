@@ -20,6 +20,7 @@ from util.tools import setup_logger
 load_dotenv()
 
 gcp_project_id = os.getenv('GCP_PROJECT_ID')
+table_name = os.getenv('TABLE_NAME')
 logger = setup_logger()
 
 
@@ -60,11 +61,11 @@ class SQLiteBackend(StorageBackend):
         self._create_table()
     
     def _create_table(self):
-        """Create the articles table if it doesn't exist."""
+        """Create the raw articles table if it doesn't exist."""
         try:
-            if self.table_name == 'articles':
-                self.cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS articles (
+            if self.table_name == table_name:
+                self.cursor.execute(f'''
+                    CREATE TABLE IF NOT EXISTS {table_name} (
                         id TEXT PRIMARY KEY,
                         source TEXT,
                         url TEXT,
@@ -77,7 +78,7 @@ class SQLiteBackend(StorageBackend):
                         tags TEXT
                     )
                 ''')
-                logger.info("Created 'articles' table if it didn't exist.")
+                logger.info(f"Created '{table_name}' table if it didn't exist.")
             else:
                 raise ValueError(f"Unknown table name: {self.table_name}")
             
@@ -88,9 +89,9 @@ class SQLiteBackend(StorageBackend):
     def insert_record(self, item: Dict[str, Any]) -> None:
         """Insert a record into the SQLite database."""
         try:
-            if self.table_name == 'articles':
-                self.cursor.execute('''
-                    INSERT OR REPLACE INTO articles
+            if self.table_name == table_name:
+                self.cursor.execute(f'''
+                    INSERT OR REPLACE INTO {table_name}
                         (id, source, url, category, title, author, 
                          date, publish_time, content, tags)
                     VALUES (?,?,?,?,?,?,?,?,?,?)

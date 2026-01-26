@@ -14,19 +14,16 @@ load_dotenv()
 # STORAGE CONFIGURATION
 # ============================================================================
 
-# Choose storage backend: 'sqlite' or 'bigquery'
-STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'sqlite')
-
 # SQLite Configuration
 SQLITE_CONFIG = {
-    'db_path': os.getenv('SQLITE_DB_PATH', 'articles.db'),
-    'table_name': os.getenv('SQLITE_TABLE_NAME', 'articles')
+    'db_path': os.getenv('SQLITE_DB_PATH', 'articles_raw.db'),
+    'table_name': os.getenv('TABLE_NAME', 'articles_raw')
 }
 
 # BigQuery Configuration
 BIGQUERY_CONFIG = {
     'dataset_id': os.getenv('BQ_DATASET_ID', 'news_data'),
-    'table_name': os.getenv('BQ_TABLE_NAME', 'articles'),
+    'table_name': os.getenv('BQ_TABLE_NAME', 'articles_raw'),
     'buffer_size': int(os.getenv('BQ_BUFFER_SIZE', 100))
 }
 
@@ -46,13 +43,16 @@ MANILA_BULLETIN_SECTIONS = [25, 26, 27, 28, 29, 30, 31]
 # HELPER FUNCTIONS
 # ============================================================================
 
-def get_storage_config() -> Dict[str, Any]:
+def get_storage_config(backend: str = None) -> Dict[str, Any]:
     """
     Get the storage configuration based on the selected backend.
     
     Returns:
         Dict containing the backend type and its configuration
     """
+    # get the backend from environment variable if not provided in parameters
+    STORAGE_BACKEND = backend if backend else os.getenv('STORAGE_BACKEND', 'sqlite')
+    
     if STORAGE_BACKEND.lower() == 'sqlite':
         return {
             'backend': 'sqlite',

@@ -159,7 +159,7 @@ Or use environment variables:
 ```bash
 export STORAGE_BACKEND=sqlite
 export SQLITE_DB_PATH=my_articles.db
-export SQLITE_TABLE_NAME=news_articles
+export TABLE_NAME=news_articles
 ```
 
 ### BigQuery Configuration
