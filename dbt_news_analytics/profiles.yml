@@ -1,0 +1,11 @@
+dbt_news_analytics:
+  target: prod
+  outputs:
+    prod:
+      type: bigquery
+      method: service-account
+      project: complete-trees-452014-g4
+      dataset: ph_news_prod
+      keyfile: ../complete-trees-452014-g4-901df3978f8d.json  # Relative to dbt project folder
+      threads: 4
+      timeout_seconds: 300

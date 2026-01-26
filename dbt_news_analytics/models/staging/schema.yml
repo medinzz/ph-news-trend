@@ -1,0 +1,18 @@
+version: 2
+
+sources:
+  - name: ph_news
+    database: complete-trees-452014-g4
+    schema: ph_news
+    tables:
+      - name: articles
+        description: Raw news articles from scraper
+
+models:
+  - name: articles
+    description: Staged articles with basic cleaning
+    columns:
+      - name: id
+        description: Unique article identifier
+        tests:
+          - unique

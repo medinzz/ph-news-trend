@@ -1,0 +1,37 @@
+name: 'dbt_news_analytics'
+version: '1.0.0'
+config-version: 2
+
+# Profile to use (defined in profiles.yml)
+profile: 'dbt_news_analytics'
+
+# Directories
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Model configurations
+models:
+  dbt_news_analytics:
+    # Staging models (raw → cleaned)
+    staging:
+      +materialized: view
+      +schema: staging
+    
+    # Intermediate models (cleaned → enriched)
+    intermediate:
+      +materialized: view
+      +schema: intermediate
+    
+    # Mart models (enriched → analytics-ready)
+    marts:
+      +materialized: table
+      +schema: marts
