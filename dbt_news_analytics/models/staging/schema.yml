@@ -1,11 +1,11 @@
 version: 2
 
 sources:
-  - name: ph_news
+  - name: ph_news_raw
     database: complete-trees-452014-g4
-    schema: ph_news
+    schema: ph_news_raw
     tables:
-      - name: articles
+      - name: articles_raw
         description: Raw news articles from scraper
 
 models:

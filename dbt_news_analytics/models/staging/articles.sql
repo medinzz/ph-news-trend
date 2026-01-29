@@ -2,8 +2,8 @@ WITH
     source_data AS (
         SELECT
             * EXCEPT (tags),
-            LOWER(REPLACE(tags, '-', ' ')) AS tags
-        FROM {{ source('ph_news', 'articles_raw') }}
+            SPLIT(LOWER(REPLACE(tags, '-', ' ')), ',') AS tags
+        FROM {{ source('ph_news_raw', 'articles_raw') }}
     )
 SELECT
     DISTINCT
