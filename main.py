@@ -107,7 +107,7 @@ def main():
     # Print configuration
     print("=" * 60)
     print(f"Fetching articles from {start_date}")
-    print(f"Using {config['backend'].upper()} storage")
+    print(f"Using {config['backend_type'].upper()} storage")
     print("=" * 60)
     
     try:
@@ -115,8 +115,8 @@ def main():
         # Note: get_all_articles will set the global storage variable
         get_all_articles(
             start_date=start_date,
-            backend=config['backend'],
-            **{k: v for k, v in config.items() if k != 'backend'}
+            backend=config['backend_type'],
+            **{k: v for k, v in config.items() if k != 'backend_type'}
         )
         
         print("\n" + "=" * 60)
