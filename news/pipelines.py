@@ -1,26 +1,48 @@
-
-
+from bs4 import BeautifulSoup
+from util.storage_backend import get_storage_backend
 from util.tools import html_to_markdown
-from util.storage_backend import get_storage_backend, StorageBackend
 
-# Global storage backend - will be set by get_all_articles
-storage: StorageBackend = None
 
 class InquirerCleaningPipeline:
     """Remove unwanted tags/ids/classes and convert HTML to Markdown."""
 
-    def __init__(self):
-        self.unwanted_ids = ['billboard_article', 'article-new-featured', 'taboola-mid-article-thumbnails', 'taboola-mid-article-thumbnails-stream', 'fb-root']
-        self.unwanted_classes = ['ztoop', 'sib-form', 'cdn_newsletter']
-        self.unwanted_tags = ['script', 'style']
+    def __init__(self, unwanted_ids, unwanted_classes, unwanted_tags):
+        self.unwanted_ids = unwanted_ids
+        self.unwanted_classes = unwanted_classes
+        self.unwanted_tags = unwanted_tags
+
+    @classmethod
+    def from_crawler(cls, crawler):
+        # Pass your unwanted lists via settings or hard-code
+        return cls(
+            unwanted_ids = ['billboard_article', 'article-new-featured', 'taboola-mid-article-thumbnails', 'taboola-mid-article-thumbnails-stream', 'fb-root'],
+            unwanted_classes = ['ztoop', 'sib-form', 'cdn_newsletter'],
+            unwanted_tags = ['script', 'style']
+        )
 
     def process_item(self, item, spider):
-        item['cleaned_content'] = html_to_markdown(
-            html = item['raw_content'], 
-            unwanted_ids = self.unwanted_ids,
-            unwanted_classes = self.unwanted_classes,
-            unwanted_tags = self.unwanted_tags
-        )
+        
+        ################### CONVERT HTML RAW CONTENT TO MARKDOWN ###################
+        html = item['raw_content']
+        soup = BeautifulSoup(html, 'html.parser')
+
+        # Remove by id
+        for uid in self.unwanted_ids:
+            for tag in soup.select(f'#{uid}'):
+                tag.decompose()
+
+        # Remove by class
+        for cls_ in self.unwanted_classes:
+            for tag in soup.select(f'.{cls_}'):
+                tag.decompose()
+
+        # Remove by tag name
+        for t in self.unwanted_tags:
+            for tag in soup.find_all(t):
+                tag.decompose()
+
+        cleaned_html = str(soup)
+        item['cleaned_content'] = html_to_markdown(cleaned_html)
         
         return item
 
@@ -29,11 +51,11 @@ class DatabasePipeline:
     """Store each item into a SQLite database."""
         
     def open_spider(self, spider):
-         self.storage = get_storage_backend(backend_type = 'sqlite')
+         self.sqlite = get_storage_backend(backend_type = 'sqlite')
 
     def close_spider(self, spider):
-        self.storage.close()
+        self.sqlite.close()
 
     def process_item(self, item, spider):
-        self.storage.insert_record(item)
+        self.sqlite.insert_record(item)
         return item
