@@ -9,6 +9,7 @@ import sys
 from datetime import datetime, timedelta
 
 from news.apis import get_all_articles
+from news.crawler import refresh_news_articles
 from config import get_storage_config, print_config, DEFAULT_DAYS_BACK
 from util.tools import setup_logger
 
@@ -80,8 +81,22 @@ def main():
         action='store_true',
         help='Show current configuration and exit'
     )
+    parser.add_argument(
+        '--use-crawler',
+        action='store_true',
+        help='Include crawler process'
+    )
+    
     
     args = parser.parse_args()
+    
+    if args.use_crawler:
+        refresh_news_articles(
+            start_date=datetime.now().strftime('%Y-%m-%d'),
+            end_date=datetime.today().strftime('%Y-%m-%d')
+        )
+        return
+    
     
     # Get storage configuration
     config = get_storage_config()

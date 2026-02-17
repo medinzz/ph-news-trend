@@ -277,7 +277,7 @@ def refresh_news_articles(start_date: str = '2001-01-01', end_date: str = dateti
             'ROBOTSTXT_OBEY': True,
             'ITEM_PIPELINES': {
                 'news.pipelines.InquirerCleaningPipeline': 200,
-                'news.pipelines.SQLitePipeline': 300,
+                'news.pipelines.DatabasePipeline': 300,
             },
         }
     )

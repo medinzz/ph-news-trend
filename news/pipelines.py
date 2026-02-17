@@ -1,7 +1,10 @@
 
-from util.sqlite import SQLiteConnection
-from util.tools import html_to_markdown
 
+from util.tools import html_to_markdown
+from util.storage_backend import get_storage_backend, StorageBackend
+
+# Global storage backend - will be set by get_all_articles
+storage: StorageBackend = None
 
 class InquirerCleaningPipeline:
     """Remove unwanted tags/ids/classes and convert HTML to Markdown."""
@@ -22,15 +25,15 @@ class InquirerCleaningPipeline:
         return item
 
 
-class SQLitePipeline:
+class DatabasePipeline:
     """Store each item into a SQLite database."""
         
     def open_spider(self, spider):
-         self.sqlite = SQLiteConnection('articles.db', 'articles')
+         self.storage = get_storage_backend(backend_type = 'sqlite')
 
     def close_spider(self, spider):
-        self.sqlite.close()
+        self.storage.close()
 
     def process_item(self, item, spider):
-        self.sqlite.insert_record(item)
+        self.storage.insert_record(item)
         return item
