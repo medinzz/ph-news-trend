@@ -102,7 +102,8 @@ class InquirerArticlesLinksSpider(scrapy.Spider):
                     callback=self.parse_article_details,
                     meta={
                         'category': category,
-                        'current_date': response.meta['current_date']
+                        'current_date': response.meta['current_date'],
+                        'use_stealthy': True,  # <-- add this
                     }
                 )
 
@@ -273,9 +274,13 @@ def refresh_news_articles(start_date: str = '2001-01-01', end_date: str = dateti
     process = CrawlerProcess(
         settings={
             'USER_AGENT': 'Mozilla/5.0',
-            'DOWNLOAD_DELAY': 1,
+            'DOWNLOAD_DELAY': 3,
+            'CONCURRENT_REQUESTS': 2,
             'LOG_LEVEL': 'INFO',
             'ROBOTSTXT_OBEY': True,
+            'DOWNLOADER_MIDDLEWARES': {
+                'news.middlewares.stealthy_middleware.CloudflareBypassMiddleware': 543,
+            },
             'ITEM_PIPELINES': {
                 'news.pipelines.InquirerCleaningPipeline': 200,
                 'news.pipelines.DatabasePipeline': 300,
