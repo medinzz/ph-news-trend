@@ -42,6 +42,11 @@ class StorageBackend(ABC):
     def run_query(self, query: str, **kwargs):
         """Execute a SQL query."""
         pass
+
+    @abstractmethod
+    def record_exists(self, record_id: str) -> bool:
+        """Check if a record with the given id already exists."""
+        pass
     
     @abstractmethod
     def close(self) -> None:
@@ -153,6 +158,17 @@ class SQLiteBackend(StorageBackend):
         except Exception as e:
             logger.error(f"Error executing query in SQLite: {e}")
             return []
+        
+    def record_exists(self, record_id: str) -> bool:
+        try:
+            self.cursor.execute(
+                f'SELECT 1 FROM {self.table_name} WHERE id = ? LIMIT 1',
+                (record_id,)
+            )
+            return self.cursor.fetchone() is not None
+        except Exception as e:
+            logger.error(f'Error checking record existence in SQLite: {e}')
+            return False
     
     def close(self) -> None:
         """Close the SQLite database connection."""
@@ -314,6 +330,17 @@ class DuckDBBackend(StorageBackend):
             logger.error(f"Error querying CSV: {e}")
             return pd.DataFrame()
     
+    def record_exists(self, record_id: str) -> bool:
+        try:
+            result = self.conn.execute(
+                f'SELECT 1 FROM {self.table_name} WHERE id = ? LIMIT 1',
+                [record_id]
+            ).fetchone()
+            return result is not None
+        except Exception as e:
+            logger.error(f'Error checking record existence in DuckDB: {e}')
+            return False
+    
     def close(self) -> None:
         """Close the DuckDB database connection."""
         self.conn.close()
@@ -343,6 +370,9 @@ class BigQueryBackend(StorageBackend):
         
         # Start the background processor
         self._start_processor()
+        
+        
+        self._existing_ids: set = self._load_existing_ids()
         
     
     def _create_dataset_and_table(self):
@@ -410,8 +440,25 @@ class BigQueryBackend(StorageBackend):
         except Exception as e:
             logger.error(f"Error executing query in BigQuery: {e}")
             return pd.DataFrame()
-    
+    def _load_existing_ids(self) -> set:
+        """Load all existing IDs into memory once to avoid per-record BQ queries."""
+        try:
+            results = self.client.query(
+                f'SELECT id FROM `{self.table_id}`'
+            ).result()
+            ids = {row.id for row in results}
+            logger.info(f'Loaded {len(ids)} existing IDs from BigQuery.')
+            return ids
+        except Exception as e:
+            logger.warning(f'Could not load existing IDs from BigQuery: {e}')
+            return set()
+
+    def record_exists(self, record_id: str) -> bool:
+        return str(record_id) in self._existing_ids
+
+    # Also update insert_record to keep the cache in sync:
     def insert_record(self, item: Dict[str, Any]) -> None:
+        self._existing_ids.add(str(item.get('id')))  # add this line
         """Add record to queue for processing (non-blocking, synchronous)."""
         try:
             # Put item in queue without blocking
