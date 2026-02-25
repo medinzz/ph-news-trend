@@ -30,7 +30,7 @@ class StorageBackend(ABC):
     
     @abstractmethod
     def insert_record(self, item: Dict[str, Any]) -> None:
-        """Insert a single record into storage."""
+        """Insert a single record into storage. Skips silently if id already exists."""
         pass
     
     @abstractmethod
@@ -46,6 +46,20 @@ class StorageBackend(ABC):
     @abstractmethod
     def record_exists(self, record_id: str) -> bool:
         """Check if a record with the given id already exists."""
+        pass
+
+    @abstractmethod
+    def upsert_record(self, item: Dict[str, Any]) -> None:
+        """
+        Insert stub in phase 1, update content fields in phase 2.
+        Only updates title/author/publish_time/content/tags — never
+        overwrites id/source/url/category/date.
+        """
+        pass
+
+    @abstractmethod
+    def get_pending_articles(self) -> List[Dict[str, Any]]:
+        """Return articles where title IS NULL (phase 1 stubs not yet populated)."""
         pass
     
     @abstractmethod
@@ -93,11 +107,14 @@ class SQLiteBackend(StorageBackend):
             logger.error(f"Error creating table: {e}")
     
     def insert_record(self, item: Dict[str, Any]) -> None:
-        """Insert a record into the SQLite database."""
+        """
+        Insert a record into the SQLite database.
+        Uses INSERT OR IGNORE so existing records are never overwritten.
+        """
         try:
             if self.table_name == table_name:
                 self.cursor.execute(f'''
-                    INSERT OR REPLACE INTO {table_name}
+                    INSERT OR IGNORE INTO {table_name}
                         (id, source, url, category, title, author, 
                          date, publish_time, content, tags)
                     VALUES (?,?,?,?,?,?,?,?,?,?)
@@ -111,7 +128,7 @@ class SQLiteBackend(StorageBackend):
                     item.get('date'),
                     item.get('publish_time'),
                     item.get('cleaned_content'),
-                    item.get('tags')
+                    item.get('tags'),
                 ))
             else:
                 raise ValueError(f"Unknown table name: {self.table_name}")
@@ -119,6 +136,66 @@ class SQLiteBackend(StorageBackend):
             logger.error(f"Error inserting record into SQLite: {e}")
         finally:    
             self.conn.commit()
+
+    def upsert_record(self, item: Dict[str, Any]) -> None:
+        try:
+            if item.get('title') is None:
+                # Phase 1 stub — insert only, never overwrite existing content
+                self.cursor.execute(f'''
+                    INSERT OR IGNORE INTO {self.table_name}
+                        (id, source, url, category, date)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (
+                    item.get('id'),
+                    item.get('source'),
+                    item.get('url'),
+                    item.get('category'),
+                    item.get('date'),
+                ))
+            else:
+                # Phase 2 — update content fields only
+                self.cursor.execute(f'''
+                    INSERT INTO {self.table_name}
+                        (id, source, url, category, title, author,
+                        date, publish_time, content, tags)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (id) DO UPDATE SET
+                        title        = excluded.title,
+                        author       = excluded.author,
+                        publish_time = excluded.publish_time,
+                        content      = excluded.content,
+                        tags         = excluded.tags
+                ''', (
+                    item.get('id'),
+                    item.get('source'),
+                    item.get('url'),
+                    item.get('category'),
+                    item.get('title'),
+                    item.get('author'),
+                    item.get('date'),
+                    item.get('publish_time'),
+                    item.get('cleaned_content'),
+                    item.get('tags'),
+                ))
+        except Exception as e:
+            logger.error(f"Error upserting record into SQLite: {e}")
+        finally:
+            self.conn.commit()
+
+    def get_pending_articles(self) -> List[Dict[str, Any]]:
+        """Return stub records not yet populated (title IS NULL)."""
+        try:
+            self.cursor.execute(f'''
+                SELECT url, category, date
+                FROM {self.table_name}
+                WHERE title IS NULL
+            ''')
+            result = self.cursor.fetchall()
+            logger.info(f"Found {len(result)} pending articles.")
+            return [{'url': row[0], 'category': row[1], 'date': row[2]} for row in result]
+        except Exception as e:
+            logger.error(f"Error fetching pending articles from SQLite: {e}")
+            return []
     
     def fetch_all(self, query: str) -> List[Any]:
         """Fetch all records from the SQLite database."""
@@ -146,11 +223,9 @@ class SQLiteBackend(StorageBackend):
             else:
                 self.cursor.execute(query)
             
-            # If it's a SELECT query, return results
             if query.strip().upper().startswith('SELECT'):
                 return self.cursor.fetchall()
             else:
-                # For INSERT, UPDATE, DELETE, commit and return empty list
                 self.conn.commit()
                 logger.info(f"Query executed: {query[:50]}...")
                 return []
@@ -183,7 +258,6 @@ class DuckDBBackend(StorageBackend):
         self.db_path = db_path
         self.table_name = table_name
         
-        # Connect to DuckDB (creates file if doesn't exist)
         self.conn = duckdb.connect(database=db_path, read_only=False)
         
         logger.info(f"Connected to DuckDB database at {db_path}.")
@@ -215,25 +289,18 @@ class DuckDBBackend(StorageBackend):
             logger.error(f"Error creating DuckDB table: {e}")
     
     def insert_record(self, item: Dict[str, Any]) -> None:
-        """Insert a record into the DuckDB database."""
+        """
+        Insert a record into the DuckDB database.
+        Uses ON CONFLICT DO NOTHING so existing records are never overwritten.
+        """
         try:
             if self.table_name == table_name:
-                # DuckDB doesn't have INSERT OR REPLACE, use INSERT OR IGNORE then UPDATE
                 self.conn.execute(f'''
                     INSERT INTO {table_name}
                         (id, source, url, category, title, author, 
                          date, publish_time, content, tags)
                     VALUES (?,?,?,?,?,?,?,?,?,?)
-                    ON CONFLICT (id) DO UPDATE SET
-                        source = EXCLUDED.source,
-                        url = EXCLUDED.url,
-                        category = EXCLUDED.category,
-                        title = EXCLUDED.title,
-                        author = EXCLUDED.author,
-                        date = EXCLUDED.date,
-                        publish_time = EXCLUDED.publish_time,
-                        content = EXCLUDED.content,
-                        tags = EXCLUDED.tags
+                    ON CONFLICT (id) DO NOTHING
                 ''', [
                     item.get('id'),
                     item.get('source'),
@@ -244,16 +311,76 @@ class DuckDBBackend(StorageBackend):
                     item.get('date'),
                     item.get('publish_time'),
                     item.get('cleaned_content'),
-                    item.get('tags')
+                    item.get('tags'),
                 ])
-                logger.debug(f"Inserted/Updated record: {item.get('id')}")
+                logger.debug(f"Inserted record (skipped if exists): {item.get('id')}")
             else:
                 raise ValueError(f"Unknown table name: {self.table_name}")
                 
         except Exception as e:
             logger.error(f"Error inserting record into DuckDB: {e}")
             logger.error(f"Item: {item}")
-    
+
+    def upsert_record(self, item: Dict[str, Any]) -> None:
+        try:
+            if item.get('title') is None:
+                # Phase 1 stub — insert only, never overwrite existing content
+                self.conn.execute(f'''
+                    INSERT INTO {self.table_name}
+                        (id, source, url, category, date)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT (id) DO NOTHING
+                ''', [
+                    item.get('id'),
+                    item.get('source'),
+                    item.get('url'),
+                    item.get('category'),
+                    item.get('date'),
+                ])
+            else:
+                # Phase 2 — update content fields only
+                self.conn.execute(f'''
+                    INSERT INTO {self.table_name}
+                        (id, source, url, category, title, author,
+                        date, publish_time, content, tags)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (id) DO UPDATE SET
+                        title        = EXCLUDED.title,
+                        author       = EXCLUDED.author,
+                        publish_time = EXCLUDED.publish_time,
+                        content      = EXCLUDED.content,
+                        tags         = EXCLUDED.tags
+                ''', [
+                    item.get('id'),
+                    item.get('source'),
+                    item.get('url'),
+                    item.get('category'),
+                    item.get('title'),
+                    item.get('author'),
+                    item.get('date'),
+                    item.get('publish_time'),
+                    item.get('cleaned_content'),
+                    item.get('tags'),
+                ])
+            logger.debug(f"Upserted record: {item.get('id')}")
+        except Exception as e:
+            logger.error(f"Error upserting record into DuckDB: {e}")
+            logger.error(f"Item: {item}")
+
+    def get_pending_articles(self) -> List[Dict[str, Any]]:
+        """Return stub records not yet populated (title IS NULL)."""
+        try:
+            result = self.conn.execute(f'''
+                SELECT url, category, CAST(date AS VARCHAR) AS date
+                FROM {self.table_name}
+                WHERE title IS NULL
+            ''').fetchall()
+            logger.info(f"Found {len(result)} pending articles.")
+            return [{'url': row[0], 'category': row[1], 'date': row[2]} for row in result]
+        except Exception as e:
+            logger.error(f"Error fetching pending articles from DuckDB: {e}")
+            return []
+
     def fetch_all(self, query: str) -> List[Any]:
         """Fetch all records from DuckDB."""
         try:
@@ -276,12 +403,10 @@ class DuckDBBackend(StorageBackend):
         """
         try:
             if return_df:
-                # Return as DataFrame (great for analytics)
                 result = self.conn.execute(query).fetchdf()
                 logger.info(f"Query executed successfully, returned {len(result)} rows")
                 return result
             else:
-                # Return as list
                 result = self.conn.execute(query).fetchall()
                 logger.info(f"Query executed successfully")
                 return result
@@ -321,7 +446,6 @@ class DuckDBBackend(StorageBackend):
             pandas DataFrame with results
         """
         try:
-            # DuckDB can query CSV files directly!
             result = self.conn.execute(f"""
                 {query.replace('read_csv_auto', f"read_csv_auto('{csv_path}')")}
             """).fetchdf()
@@ -371,13 +495,10 @@ class BigQueryBackend(StorageBackend):
         # Start the background processor
         self._start_processor()
         
-        
         self._existing_ids: set = self._load_existing_ids()
         
-    
     def _create_dataset_and_table(self):
         """Create the dataset and table if they don't exist."""
-        # Create dataset
         dataset_ref = f'{gcp_project_id}.{self.dataset_id}'
         dataset = bigquery.Dataset(dataset_ref)
         dataset.location = 'US'
@@ -388,7 +509,6 @@ class BigQueryBackend(StorageBackend):
         except Exception as e:
             logger.error(f'Dataset creation failed: {e}')
         
-        # Define table schema
         schema = [
             bigquery.SchemaField("id", "STRING", mode="REQUIRED"),
             bigquery.SchemaField("source", "STRING"),
@@ -436,10 +556,10 @@ class BigQueryBackend(StorageBackend):
             df = results.to_dataframe()
             logger.info(f"Query executed successfully, returned {len(df)} rows")
             return df
-            
         except Exception as e:
             logger.error(f"Error executing query in BigQuery: {e}")
             return pd.DataFrame()
+
     def _load_existing_ids(self) -> set:
         """Load all existing IDs into memory once to avoid per-record BQ queries."""
         try:
@@ -456,29 +576,65 @@ class BigQueryBackend(StorageBackend):
     def record_exists(self, record_id: str) -> bool:
         return str(record_id) in self._existing_ids
 
-    # Also update insert_record to keep the cache in sync:
     def insert_record(self, item: Dict[str, Any]) -> None:
-        self._existing_ids.add(str(item.get('id')))  # add this line
-        """Add record to queue for processing (non-blocking, synchronous)."""
+        """
+        Add record to queue for processing (non-blocking, synchronous).
+        Skips silently if the id is already known — existing records are
+        never overwritten.
+        """
+        record_id = str(item.get('id'))
+        if record_id in self._existing_ids:
+            logger.debug(f"Skipping existing record: {record_id}")
+            return
+
+        self._existing_ids.add(record_id)
         try:
-            # Put item in queue without blocking
-            # This is safe to call from sync code
             asyncio.get_event_loop().call_soon_threadsafe(
                 self._queue.put_nowait, item
             )
         except Exception as e:
             logger.error(f"Error adding item to queue: {e}")
-    
+
+    def upsert_record(self, item: Dict[str, Any]) -> None:
+        record_id = str(item.get('id'))
+        if item.get('title') is None:
+            # Phase 1 stub — skip entirely if record already exists
+            if record_id in self._existing_ids:
+                logger.debug(f"Skipping existing record: {record_id}")
+                return
+            self._existing_ids.add(record_id)
+        # Phase 2 items always go through to update content
+        try:
+            asyncio.get_event_loop().call_soon_threadsafe(
+                self._queue.put_nowait, item
+            )
+        except Exception as e:
+            logger.error(f"Error adding item to queue for upsert: {e}")
+
+    def get_pending_articles(self) -> List[Dict[str, Any]]:
+        """Return stub records not yet populated (title IS NULL)."""
+        try:
+            query_job = self.client.query(f'''
+                SELECT url, category, CAST(date AS STRING) AS date
+                FROM `{self.table_id}`
+                WHERE title IS NULL
+            ''')
+            result = query_job.result()
+            rows = [{'url': row.url, 'category': row.category, 'date': row.date} for row in result]
+            logger.info(f"Found {len(rows)} pending articles.")
+            return rows
+        except Exception as e:
+            logger.error(f"Error fetching pending articles from BigQuery: {e}")
+            return []
+
     async def _flush_buffer_async(self) -> None:
         """Async version of flush buffer."""
         if not self.buffer:
             return
         
         try:
-            # Convert buffer to DataFrame
             df = pd.DataFrame(self.buffer)
             
-            # Convert id to string
             if 'id' in df.columns:
                 df['id'] = df['id'].astype(str)
             
@@ -486,51 +642,43 @@ class BigQueryBackend(StorageBackend):
             if 'cleaned_content' in df.columns:
                 df = df.rename(columns={'cleaned_content': 'content'})
             
-            # Ensure proper data types
             if 'date' in df.columns:
                 df['date'] = pd.to_datetime(df['date']).dt.normalize()
             if 'publish_time' in df.columns:
                 df['publish_time'] = pd.to_datetime(df['publish_time'])
             
-            # Convert object columns to string (but exclude date/publish_time)
             for col in df.columns:
                 if df[col].dtype == 'object' and col not in ['date', 'publish_time']:
                     df[col] = df[col].astype(str).replace('None', None)
             
-            # Load to BigQuery (run in thread pool to not block event loop)
             job_config = bigquery.LoadJobConfig(
                 write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
             )
             
-            # Run blocking BigQuery operation in thread
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
-                None,  # Use default executor
+                None,
                 self._sync_load_to_bigquery,
                 df,
                 job_config
             )
             
             logger.info(f'Inserted {len(self.buffer)} records into BigQuery')
-            self.buffer = []  # Clear buffer
+            self.buffer = []
             
         except Exception as e:
             logger.error(f"Error batch inserting into BigQuery: {e}")
             logger.error(traceback.format_exc())
-            self.buffer = []  # Clear buffer even on error
-    
+            self.buffer = []
     
     def _start_processor(self):
         """Start the background queue processor."""
         try:
-            # Get or create event loop
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # No running loop, create a new one
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        # Start the processor task
         self._processor_task = asyncio.create_task(self._process_queue())
         self._is_processing = True
         logger.info("Background queue processor started")
@@ -542,26 +690,21 @@ class BigQueryBackend(StorageBackend):
         try:
             while self._is_processing:
                 try:
-                    # Wait for item with timeout to check _is_processing flag
                     item = await asyncio.wait_for(self._queue.get(), timeout=1.0)
                     
-                    if item is None:  # Sentinel value to stop
+                    if item is None:
                         logger.info("Received stop sentinel, shutting down processor")
                         break
                     
-                    # Add to buffer
                     self.buffer.append(item)
                     
-                    # Flush if buffer is full
                     if len(self.buffer) >= self.buffer_size:
                         logger.info(f"Buffer full ({len(self.buffer)} items), flushing...")
                         await self._flush_buffer_async()
                     
-                    # Mark task as done
                     self._queue.task_done()
                     
                 except asyncio.TimeoutError:
-                    # No item received, continue loop to check _is_processing flag
                     continue
                 except Exception as e:
                     logger.error(f"Error processing queue item: {e}")
@@ -570,7 +713,6 @@ class BigQueryBackend(StorageBackend):
             logger.info(f"Queue size: {self._queue.qsize()}, Buffer size: {len(self.buffer)}")
         
         finally:
-            # Final flush when stopping
             if self.buffer:
                 logger.info(f"Final flush on shutdown ({len(self.buffer)} items)")
                 await self._flush_buffer_async()
@@ -581,22 +723,16 @@ class BigQueryBackend(StorageBackend):
         job = self.client.load_table_from_dataframe(
             df, self.table_id, job_config=job_config
         )
-        job.result()  # Wait for completion
+        job.result()
     
     async def _stop_processor(self):
         """Stop the background processor gracefully."""
         logger.info("Stopping queue processor...")
         
-        # Signal processor to stop
         self._is_processing = False
-        
-        # Send sentinel value
         await self._queue.put(None)
-        
-        # Wait for all queued items to be processed
         await self._queue.join()
         
-        # Wait for processor task to complete
         if self._processor_task:
             await self._processor_task
         
@@ -613,28 +749,35 @@ class BigQueryBackend(StorageBackend):
         """Flush remaining buffer and close connection."""
         logger.info("Closing BigQuery backend...")
         
-        # Stop the processor (this will flush remaining items)
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                # If loop is running, schedule the stop
                 asyncio.ensure_future(self._stop_processor())
             else:
-                # If loop is not running, run it
                 loop.run_until_complete(self._stop_processor())
         except Exception as e:
             logger.error(f"Error stopping processor: {e}")
-            # Manual flush as fallback
             if self.buffer:
-                logger.info("Attempting manual flush...")
                 logger.warning(f"{len(self.buffer)} items may not have been flushed")
         
-        # Clean up duplicates
+        # Dedup: for each id, keep the row with content populated (phase 2 wins
+        # over stubs); fall back to most recent publish_time if both have content.
         try:
-            self.run_query(
-                f'CREATE OR REPLACE TABLE {self.table_id} AS '
-                f'SELECT DISTINCT * FROM {self.table_id};'
-            )
+            self.run_query(f'''
+                CREATE OR REPLACE TABLE `{self.table_id}` AS
+                SELECT * EXCEPT(row_num)
+                FROM (
+                    SELECT *,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY id
+                            ORDER BY
+                                (title IS NOT NULL) DESC,
+                                publish_time DESC
+                        ) AS row_num
+                    FROM `{self.table_id}`
+                )
+                WHERE row_num = 1
+            ''')
         except Exception as e:
             logger.error(f"Error cleaning duplicates: {e}")
         
@@ -656,7 +799,6 @@ def get_storage_backend(backend_type: str = 'duckdb', **kwargs) -> StorageBacken
     backend_type = backend_type.lower()
     
     if backend_type == 'sqlite':
-        # Extract only SQLite-specific parameters
         sqlite_kwargs = {
             'db_path': kwargs.get('db_path', 'articles_raw.db'),
             'table_name': kwargs.get('table_name', table_name)
@@ -664,7 +806,6 @@ def get_storage_backend(backend_type: str = 'duckdb', **kwargs) -> StorageBacken
         return SQLiteBackend(**sqlite_kwargs)
     
     elif backend_type == 'duckdb':
-        # Extract only DuckDB-specific parameters
         duckdb_kwargs = {
             'db_path': kwargs.get('db_path', 'articles_raw.duckdb'),
             'table_name': kwargs.get('table_name', table_name)
@@ -672,7 +813,6 @@ def get_storage_backend(backend_type: str = 'duckdb', **kwargs) -> StorageBacken
         return DuckDBBackend(**duckdb_kwargs)
     
     elif backend_type == 'bigquery':
-        # Extract only BigQuery-specific parameters
         bigquery_kwargs = {
             'dataset_id': kwargs.get('dataset_id', 'ph_news_raw'),
             'table_name': kwargs.get('table_name', table_name),
