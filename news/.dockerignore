@@ -1,0 +1,15 @@
+*.duckdb
+*.db
+*.ipynb
+.git
+.env
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+env/
+venv/
+MOTHERDUCK_PATCH.py
+MAIN_PATCH.py
+DOCKER_GUIDE.md
+nlp_practice.ipynb
