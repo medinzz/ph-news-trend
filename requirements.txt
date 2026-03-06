@@ -1,0 +1,36 @@
+# Core crawler
+Scrapy==2.14.1
+Twisted==25.5.0
+lxml==6.0.2
+parsel==1.11.0
+cssselect==1.4.0
+w3lib==2.4.0
+itemadapter==0.13.1
+itemloaders==1.4.0
+queuelib==1.9.0
+PyDispatcher==2.0.7
+Protego==0.6.0
+service-identity==24.2.0
+pyOpenSSL==25.3.0
+cryptography==46.0.5
+
+# Storage
+duckdb==1.4.4
+
+# HTTP / stealth middleware
+aiohttp==3.13.3
+curl_cffi==0.14.0
+camoufox==0.4.11
+scrapling==0.4
+browserforge==1.2.4
+requests==2.32.5
+
+# Content parsing
+beautifulsoup4==4.14.3
+html2text==2025.4.15
+
+# Utilities
+python-dotenv==1.2.1
+pandas==2.3.3
+pyarrow==22.0.0
+python-dateutil==2.9.0.post0

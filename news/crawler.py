@@ -59,7 +59,7 @@ class InquirerLinkSpider(scrapy.Spider):
         # Load already-crawled dates from DB once at spider init so we
         # don't hit the DB on every single request.
         db = get_storage_backend(backend_type=STORAGE_BACKEND)
-        rows = db.fetch_all(f"SELECT DISTINCT CAST(date AS VARCHAR) FROM {os.getenv('TABLE_NAME')}")
+        rows = db.fetch_all(f"SELECT DISTINCT CAST(date AS VARCHAR) FROM {os.getenv('TABLE_NAME')} WHERE source = 'inquirer'")
         self.crawled_dates = {row[0] for row in rows}
         db.close()
         logger.info(f'Phase 1: {len(self.crawled_dates)} dates already in DB — will skip these.')
