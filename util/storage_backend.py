@@ -1,6 +1,6 @@
 """
 Abstract storage backend interface for news articles.
-Supports SQLite, DuckDB, and BigQuery storage backends.
+Supports SQLite, DuckDB, MotherDuck, and BigQuery storage backends.
 """
 
 from abc import ABC, abstractmethod
@@ -138,6 +138,10 @@ class SQLiteBackend(StorageBackend):
             self.conn.commit()
 
     def upsert_record(self, item: Dict[str, Any]) -> None:
+        """
+        Phase 1: INSERT stub only — never overwrites existing content.
+        Phase 2: UPDATE content fields on id conflict.
+        """
         try:
             if item.get('title') is None:
                 # Phase 1 stub — insert only, never overwrite existing content
@@ -322,6 +326,10 @@ class DuckDBBackend(StorageBackend):
             logger.error(f"Item: {item}")
 
     def upsert_record(self, item: Dict[str, Any]) -> None:
+        """
+        Phase 1: INSERT stub only — never overwrites existing content.
+        Phase 2: UPDATE content fields on id conflict.
+        """
         try:
             if item.get('title') is None:
                 # Phase 1 stub — insert only, never overwrite existing content
@@ -471,6 +479,52 @@ class DuckDBBackend(StorageBackend):
         logger.info("DuckDB connection closed.")
 
 
+class MotherDuckBackend(DuckDBBackend):
+    """
+    MotherDuck (cloud-hosted DuckDB) storage backend.
+
+    Inherits everything from DuckDBBackend — all queries, upserts, and
+    schema creation work identically. The only difference is the connection
+    string: 'md:<database>' instead of a local file path.
+
+    The duckdb library picks up MOTHERDUCK_TOKEN from the environment
+    automatically — no need to pass it explicitly in code.
+
+    Setup:
+        1. Sign up at https://app.motherduck.com (free tier available)
+        2. Create a database (e.g. 'ph_news')
+        3. Go to Settings → Access Tokens → Create Token
+        4. Add to your .env or GitHub Actions secrets:
+               MOTHERDUCK_TOKEN=your_token_here
+               MOTHERDUCK_DB=ph_news
+               TABLE_NAME=articles_raw
+               STORAGE_BACKEND=motherduck
+    """
+
+    def __init__(self, database: str, table_name: str):
+        """
+        Args:
+            database:   MotherDuck database name, e.g. 'ph_news'.
+            table_name: Table to read/write, e.g. 'articles_raw'.
+        """
+        token = os.getenv('MOTHERDUCK_TOKEN')
+        if not token:
+            raise EnvironmentError(
+                'MOTHERDUCK_TOKEN environment variable is not set. '
+                'Get your token from https://app.motherduck.com → Settings → Access Tokens.'
+            )
+
+        # Set db_path and table_name before calling _create_table via super()
+        self.db_path = f'md:{database}'
+        self.table_name = table_name
+
+        # duckdb picks up MOTHERDUCK_TOKEN from the environment automatically
+        self.conn = duckdb.connect(database=self.db_path, read_only=False)
+
+        logger.info(f"Connected to MotherDuck database '{database}'.")
+        self._create_table()
+
+
 class BigQueryBackend(StorageBackend):
     """BigQuery storage backend implementation with queue-based batch insert."""
     
@@ -596,6 +650,10 @@ class BigQueryBackend(StorageBackend):
             logger.error(f"Error adding item to queue: {e}")
 
     def upsert_record(self, item: Dict[str, Any]) -> None:
+        """
+        Phase 1: skip if record already exists.
+        Phase 2: always queue to update content fields.
+        """
         record_id = str(item.get('id'))
         if item.get('title') is None:
             # Phase 1 stub — skip entirely if record already exists
@@ -790,7 +848,7 @@ def get_storage_backend(backend_type: str = 'duckdb', **kwargs) -> StorageBacken
     Factory function to get the appropriate storage backend.
     
     Args:
-        backend_type: 'sqlite', 'duckdb', or 'bigquery'
+        backend_type: 'sqlite', 'duckdb', 'motherduck', or 'bigquery'
         **kwargs: Additional arguments to pass to the backend constructor
         
     Returns:
@@ -811,6 +869,13 @@ def get_storage_backend(backend_type: str = 'duckdb', **kwargs) -> StorageBacken
             'table_name': kwargs.get('table_name', table_name)
         }
         return DuckDBBackend(**duckdb_kwargs)
+
+    elif backend_type == 'motherduck':
+        motherduck_kwargs = {
+            'database':   kwargs.get('database',   os.getenv('MOTHERDUCK_DB', 'articles_raw')),
+            'table_name': kwargs.get('table_name', table_name),
+        }
+        return MotherDuckBackend(**motherduck_kwargs)
     
     elif backend_type == 'bigquery':
         bigquery_kwargs = {
@@ -821,4 +886,4 @@ def get_storage_backend(backend_type: str = 'duckdb', **kwargs) -> StorageBacken
         return BigQueryBackend(**bigquery_kwargs)
     
     else:
-        raise ValueError(f"Unknown backend type: {backend_type}. Choose 'sqlite', 'duckdb', or 'bigquery'.")
+        raise ValueError(f"Unknown backend type: {backend_type}. Choose 'sqlite', 'duckdb', 'motherduck', or 'bigquery'.")

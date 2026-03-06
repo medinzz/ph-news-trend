@@ -14,7 +14,7 @@ load_dotenv()
 # STORAGE CONFIGURATION
 # ============================================================================
 
-# Choose storage backend: 'sqlite', 'duckdb', or 'bigquery'
+# Choose storage backend: 'sqlite', 'duckdb', 'motherduck', or 'bigquery'
 STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'duckdb')
 
 # SQLite Configuration
@@ -23,10 +23,18 @@ SQLITE_CONFIG = {
     'table_name': os.getenv('TABLE_NAME', 'articles_raw')
 }
 
-# DuckDB Configuration (NEW!)
+# DuckDB Configuration
 DUCKDB_CONFIG = {
     'db_path': os.getenv('DUCKDB_DB_PATH', 'articles_raw.duckdb'),
     'table_name': os.getenv('TABLE_NAME', 'articles_raw')
+}
+
+# MotherDuck Configuration (cloud-hosted DuckDB)
+# Requires MOTHERDUCK_TOKEN to be set in your environment or .env file.
+# Get your token from https://app.motherduck.com → Settings → Access Tokens
+MOTHERDUCK_CONFIG = {
+    'database':   os.getenv('MOTHERDUCK_DB', 'articles_raw'),
+    'table_name': os.getenv('TABLE_NAME', 'articles_raw'),
 }
 
 # BigQuery Configuration
@@ -52,32 +60,28 @@ MANILA_BULLETIN_SECTIONS = [25, 26, 27, 28, 29, 30, 31]
 # HELPER FUNCTIONS
 # ============================================================================
 
-def get_storage_config() -> Dict[str, Any]:
+def get_storage_config(backend_override: str = None) -> Dict[str, Any]:
     """
     Get the storage configuration based on the selected backend.
-    
+
+    Args:
+        backend_override: Optional backend name to override STORAGE_BACKEND env var.
+
     Returns:
         Dict containing the backend type and its configuration
     """
-    backend = STORAGE_BACKEND.lower()
+    backend = (backend_override or STORAGE_BACKEND).lower()
     
     if backend == 'sqlite':
-        return {
-            'backend_type': 'sqlite',
-            **SQLITE_CONFIG
-        }
+        return {'backend_type': 'sqlite', **SQLITE_CONFIG}
     elif backend == 'duckdb':
-        return {
-            'backend_type': 'duckdb',
-            **DUCKDB_CONFIG
-        }
+        return {'backend_type': 'duckdb', **DUCKDB_CONFIG}
+    elif backend == 'motherduck':
+        return {'backend_type': 'motherduck', **MOTHERDUCK_CONFIG}
     elif backend == 'bigquery':
-        return {
-            'backend_type': 'bigquery',
-            **BIGQUERY_CONFIG
-        }
+        return {'backend_type': 'bigquery', **BIGQUERY_CONFIG}
     else:
-        raise ValueError(f"Unknown storage backend: {STORAGE_BACKEND}")
+        raise ValueError(f"Unknown storage backend: {backend}")
 
 
 def get_storage_backend_instance():
@@ -92,22 +96,15 @@ def get_storage_backend_instance():
     backend = STORAGE_BACKEND.lower()
     
     if backend == 'sqlite':
-        return get_storage_backend(
-            backend_type='sqlite',
-            **SQLITE_CONFIG
-        )
+        return get_storage_backend(backend_type='sqlite', **SQLITE_CONFIG)
     elif backend == 'duckdb':
-        return get_storage_backend(
-            backend_type='duckdb',
-            **DUCKDB_CONFIG
-        )
+        return get_storage_backend(backend_type='duckdb', **DUCKDB_CONFIG)
+    elif backend == 'motherduck':
+        return get_storage_backend(backend_type='motherduck', **MOTHERDUCK_CONFIG)
     elif backend == 'bigquery':
-        return get_storage_backend(
-            backend_type='bigquery',
-            **BIGQUERY_CONFIG
-        )
+        return get_storage_backend(backend_type='bigquery', **BIGQUERY_CONFIG)
     else:
-        raise ValueError(f"Unknown storage backend: {STORAGE_BACKEND}")
+        raise ValueError(f"Unknown storage backend: {backend}")
 
 
 def print_config():
@@ -128,6 +125,12 @@ def print_config():
         print(f"Database Path: {config['db_path']}")
         print(f"Table Name: {config['table_name']}")
         print("Note: DuckDB is optimized for OLAP (analytics)")
+    elif backend == 'motherduck':
+        print(f"Database: {config['database']}")
+        print(f"Table Name: {config['table_name']}")
+        token_set = bool(os.getenv('MOTHERDUCK_TOKEN'))
+        print(f"Token set: {'✅ Yes' if token_set else '❌ No — set MOTHERDUCK_TOKEN'}")
+        print("Note: MotherDuck is cloud-hosted DuckDB")
     elif backend == 'bigquery':
         print(f"Dataset ID: {config['dataset_id']}")
         print(f"Table Name: {config['table_name']}")

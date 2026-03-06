@@ -1,5 +1,5 @@
 """
-Main script to fetch news articles and store in SQLite or BigQuery.
+Main script to fetch news articles and store in SQLite, DuckDB, MotherDuck, or BigQuery.
 Edit config.py to change storage backend and other settings.
 """
 
@@ -43,9 +43,9 @@ def run_query(query: str, config: dict) -> None:
     """
     Open a storage connection, run a SQL query, print results, and close.
 
-    Works with SQLite and DuckDB backends. For BigQuery, results are printed
-    as a DataFrame (same as DuckDB). Meant for quick ad-hoc data inspection
-    from the CLI without needing a separate DB client.
+    Works with SQLite, DuckDB, and MotherDuck backends. For BigQuery,
+    results are printed as a DataFrame. Meant for quick ad-hoc data
+    inspection from the CLI without needing a separate DB client.
     """
     backend_type = config.get('backend_type', 'sqlite')
     kwargs = {k: v for k, v in config.items() if k != 'backend_type'}
@@ -60,7 +60,7 @@ def run_query(query: str, config: dict) -> None:
             print("Query returned no results.")
             return
 
-        # DuckDB and BigQuery return a DataFrame; SQLite returns a list of tuples
+        # DuckDB/MotherDuck/BigQuery return a DataFrame; SQLite returns a list of tuples
         import pandas as pd
         if isinstance(results, pd.DataFrame):
             if results.empty:
@@ -88,7 +88,7 @@ def main():
     logger.info("Signal handlers registered (Ctrl+C to gracefully stop)")
 
     parser = argparse.ArgumentParser(
-        description='Fetch news articles and store in SQLite, DuckDB, or BigQuery'
+        description='Fetch news articles and store in SQLite, DuckDB, MotherDuck, or BigQuery'
     )
     parser.add_argument(
         '--start-date',
@@ -103,7 +103,7 @@ def main():
     parser.add_argument(
         '--backend',
         type=str,
-        choices=['sqlite', 'duckdb', 'bigquery'],
+        choices=['sqlite', 'duckdb', 'motherduck', 'bigquery'],  # motherduck added
         help='Override storage backend from config.py'
     )
     parser.add_argument(
@@ -146,9 +146,19 @@ def main():
 
     # ── --use-crawler ───────────────────────────────────────────────────────
     if args.use_crawler:
+        import os
+
+        # When run via GitHub Actions, CRAWL_START_DATE and CRAWL_END_DATE are
+        # injected as environment variables by the workflow. When run locally,
+        # these fall back to the defaults below.
+        start_date = os.getenv('CRAWL_START_DATE', '2026-01-01')
+        end_date   = os.getenv('CRAWL_END_DATE',   datetime.today().strftime('%Y-%m-%d'))
+
+        logger.info(f"Crawler date range: {start_date} → {end_date}")
+
         refresh_news_articles(
-            start_date=datetime.now().strftime('%Y-%m-%d'),
-            end_date=datetime.today().strftime('%Y-%m-%d'),
+            start_date=start_date,
+            end_date=end_date,
             categories=[
                 'NEWS',
                 'WORLD',
