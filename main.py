@@ -171,7 +171,6 @@ def main():
                 'SPORTS',
             ]
         )
-        return
 
     # ── Default: run API scrapers ───────────────────────────────────────────
     if args.start_date:
