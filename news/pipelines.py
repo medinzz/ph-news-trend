@@ -1,6 +1,11 @@
+import os
+from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from util.storage_backend import get_storage_backend
 from util.tools import html_to_markdown
+
+load_dotenv()
+STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'duckdb')
 
 
 class InquirerCleaningPipeline:
@@ -23,7 +28,7 @@ class InquirerCleaningPipeline:
 
     def process_item(self, item, spider):
         # Phase 1 stub items have no raw_content — nothing to clean, pass through
-        if not item.get('raw_content'):
+        if 'raw_content' not in item:
             return item
 
         html = item['raw_content']
@@ -49,13 +54,10 @@ class DatabasePipeline:
     """
     Phase 1 — INSERT stub records (url + metadata, content fields NULL).
     Phase 2 — UPSERT: update existing stubs with full content on id match.
-
-    Relies on your storage backend's upsert_record(item) method.
-    See note below if you only have insert_record.
     """
 
     def open_spider(self, spider):
-        self.db = get_storage_backend(backend_type='duckdb')
+        self.db = get_storage_backend(backend_type=STORAGE_BACKEND)
 
     def close_spider(self, spider):
         self.db.close()
