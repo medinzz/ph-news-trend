@@ -33,7 +33,7 @@ DUCKDB_CONFIG = {
 # Requires MOTHERDUCK_TOKEN to be set in your environment or .env file.
 # Get your token from https://app.motherduck.com → Settings → Access Tokens
 MOTHERDUCK_CONFIG = {
-    'database':   os.getenv('MOTHERDUCK_DB', 'articles_raw'),
+    'database':   os.getenv('MOTHERDUCK_DB', 'ph_news'),
     'table_name': os.getenv('TABLE_NAME', 'articles_raw'),
 }
 

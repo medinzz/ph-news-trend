@@ -872,7 +872,7 @@ def get_storage_backend(backend_type: str = 'duckdb', **kwargs) -> StorageBacken
 
     elif backend_type == 'motherduck':
         motherduck_kwargs = {
-            'database':   kwargs.get('database',   os.getenv('MOTHERDUCK_DB', 'articles_raw')),
+            'database':   kwargs.get('database',   os.getenv('MOTHERDUCK_DB', 'ph_news')),
             'table_name': kwargs.get('table_name', table_name),
         }
         return MotherDuckBackend(**motherduck_kwargs)
