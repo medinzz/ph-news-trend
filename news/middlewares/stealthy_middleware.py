@@ -68,7 +68,7 @@ async def _async_fetch_camoufox(url: str) -> tuple[str, int]:
         i_know_what_im_doing=True
     ) as browser:
         page = await browser.new_page()
-        response = await page.goto(url, timeout=30000)
+        response = await page.goto(url, timeout=6000)
         status = response.status if response else 0
 
         # Solve Cloudflare Turnstile if present
