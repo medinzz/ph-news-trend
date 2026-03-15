@@ -44,7 +44,8 @@ class InquirerLinkSpider(scrapy.Spider):
     id/source/url/category/date populated — all other fields left absent
     so the DB can store them as NULL.
 
-    Skips dates that already have records in the DB.
+    Skips articles whose ID already exists in the DB — more granular
+    than date-based skipping: partial days are handled correctly.
     """
     name = 'inquirer_links'
     allowed_domains = ['inquirer.net']
@@ -56,41 +57,34 @@ class InquirerLinkSpider(scrapy.Spider):
         self.end_date = datetime.strptime(end_date, self.url_dt_format) if end_date else self.start_date
         self.categories = {c.strip().upper() for c in categories.split(',')} if categories else None
 
-        # Load already-crawled dates from DB once at spider init so we
-        # don't hit the DB on every single request.
+        # Load all existing Inquirer IDs from DB once at spider init.
+        # Stored as a set for O(1) lookup — much faster than querying per article.
         db = get_storage_backend(backend_type=STORAGE_BACKEND)
-        rows = db.fetch_all(f"SELECT DISTINCT CAST(date AS VARCHAR) FROM {os.getenv('TABLE_NAME')} WHERE source = 'inquirer'")
-        self.crawled_dates = {row[0] for row in rows}
+        rows = db.fetch_all(
+            f"SELECT DISTINCT id FROM {os.getenv('TABLE_NAME')} WHERE source = 'inquirer'"
+        )
+        self.existing_ids = {row[0] for row in rows}
         db.close()
-        logger.info(f'Phase 1: {len(self.crawled_dates)} dates already in DB — will skip these.')
+        logger.info(f'Phase 1: {len(self.existing_ids)} existing Inquirer IDs loaded from DB.')
 
     def start_requests(self):
         current_date = self.start_date
-        skipped = 0
-        queued = 0
-
         while current_date <= self.end_date:
             date_str = current_date.strftime(self.url_dt_format)
-
-            if date_str in self.crawled_dates:
-                logger.info(f'Skipping {date_str} — already in DB.')
-                skipped += 1
-            else:
-                logger.info(f'Queuing article index for {date_str}')
-                yield scrapy.Request(
-                    url=f'https://www.inquirer.net/article-index/?d={date_str}',
-                    callback=self.parse_links,
-                    meta={'current_date': date_str}
-                )
-                queued += 1
-
+            logger.info(f'Queuing article index for {date_str}')
+            yield scrapy.Request(
+                url=f'https://www.inquirer.net/article-index/?d={date_str}',
+                callback=self.parse_links,
+                meta={'current_date': date_str}
+            )
             current_date += timedelta(days=1)
-
-        logger.info(f'Phase 1 summary: {queued} dates queued, {skipped} dates skipped.')
 
     def parse_links(self, response):
         sections = response.css('h4')
         logger.info(f'Found {len(sections)} sections on index page for {response.meta["current_date"]}')
+
+        inserted = 0
+        skipped = 0
 
         for section in sections:
             category = section.css('::text').get(default='').strip()
@@ -112,13 +106,29 @@ class InquirerLinkSpider(scrapy.Spider):
                 if url_meta['subdomain'] == 'cebudailynews' and 'daily-gospel' in url_meta['slug']:
                     continue
 
+                article_id = _make_article_id(url_meta)
+
+                # Skip if ID already exists in DB
+                if article_id in self.existing_ids:
+                    skipped += 1
+                    continue
+
+                # Add to set to avoid yielding duplicates within the same run
+                self.existing_ids.add(article_id)
+                inserted += 1
+
                 yield ArticleItem(
-                    id=_make_article_id(url_meta),
+                    id=article_id,
                     source=url_meta['origin'],
                     url=link,
                     category=category,
                     date=response.meta['current_date'],
                 )
+
+        logger.info(
+            f'Phase 1 [{response.meta["current_date"]}]: '
+            f'{inserted} new articles queued, {skipped} already in DB.'
+        )
 
 
 # ── PHASE 2: Populate article details ─────────────────────────────────────────
@@ -234,7 +244,7 @@ class InquirerArticleSpider(scrapy.Spider):
                 'lifestyle': 'div.elementor-widget-theme-post-content',
                 'pop': 'div#TO_target_content',
                 'cebudailynews': 'div#article-content',
-                'bandera': 'div#TO_target_content',
+                'usa': 'div#TO_target_content',
             }
             selector = content_selectors.get(url_metadata['subdomain'], 'div#FOR_target_content')
             return response.css(selector).get(default='Cannot extract article content')
@@ -279,6 +289,82 @@ class InquirerArticleSpider(scrapy.Spider):
             logger.debug(traceback.format_exc())
         finally:
             return publish_time
+
+
+# ── DEBUG UTILITY ─────────────────────────────────────────────────────────────
+
+def debug_article(url: str) -> dict:
+    """
+    Fetch a single article URL and run all extractors on it.
+    Prints each extracted field and returns them as a dict.
+    No DB writes, no full crawl — safe to run anytime.
+
+    Usage:
+        # From a Python shell or Jupyter notebook:
+        from news.crawler import debug_article
+        debug_article('https://newsinfo.inquirer.net/12345678/some-article-slug')
+
+        # From the CLI:
+        python main.py --debug-url "https://newsinfo.inquirer.net/12345678/some-article-slug"
+    """
+    import requests
+    from parsel import Selector
+
+    headers = {
+        'User-Agent': (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/122.0.0.0 Safari/537.36'
+        )
+    }
+
+    print(f'\n{"=" * 60}')
+    print(f'DEBUG: {url}')
+    print(f'{"=" * 60}')
+
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+    except Exception as e:
+        print(f'❌ Failed to fetch URL: {e}')
+        return {}
+
+    # Wrap parsel Selector so extractor methods work identically to Scrapy
+    class FakeResponse:
+        def __init__(self, text, url):
+            self.url = url
+            self._sel = Selector(text=text)
+        def css(self, query):
+            return self._sel.css(query)
+        def xpath(self, query):
+            return self._sel.xpath(query)
+
+    fake_response = FakeResponse(response.text, url)
+    url_meta = _parse_inq_art_url(url)
+
+    # Instantiate spider without calling __init__ (no DB connection needed)
+    spider = InquirerArticleSpider.__new__(InquirerArticleSpider)
+
+    results = {
+        'url':          url,
+        'url_meta':     url_meta,
+        'id':           _make_article_id(url_meta),
+        'title':        spider._extract_title(fake_response, url_meta),
+        'author':       spider._extract_author(fake_response, url_meta),
+        'publish_time': spider._extract_publish_time(fake_response),
+        'tags':         spider._extract_tags(fake_response, url_meta),
+        'content':      spider._extract_content(fake_response, url_meta),
+    }
+
+    for field, value in results.items():
+        if field == 'content':
+            preview = str(value)[:300] + '...' if value and len(str(value)) > 300 else value
+            print(f'\n📄 content (first 300 chars):\n{preview}')
+        else:
+            print(f'\n🔹 {field}:\n  {value}')
+
+    print(f'\n{"=" * 60}\n')
+    return results
 
 
 # ── SHARED SCRAPY SETTINGS ────────────────────────────────────────────────────
@@ -334,14 +420,20 @@ def collect_links(
         end_date=end_date,
         categories=','.join(categories) if categories else None,
     )
-    process.start()
+    try:
+        process.start()
+    except KeyboardInterrupt:
+        logger.info('Crawler interrupted by user.')
 
 
 def populate_articles():
     """Phase 2 — fetch each pending article page and fill in the stub records."""
     process = CrawlerProcess(settings=_base_settings())
     process.crawl(InquirerArticleSpider)
-    process.start()
+    try:
+        process.start()
+    except KeyboardInterrupt:
+        logger.info('Crawler interrupted by user.')
 
 
 def refresh_news_articles(
@@ -354,7 +446,7 @@ def refresh_news_articles(
 
     @defer.inlineCallbacks
     def _crawl_chain():
-        # Phase 1 — collect links (skips dates already in DB)
+        # Phase 1 — collect links (skips IDs already in DB)
         yield process.crawl(
             InquirerLinkSpider,
             start_date=start_date,
@@ -365,4 +457,7 @@ def refresh_news_articles(
         yield process.crawl(InquirerArticleSpider)
 
     _crawl_chain()
-    process.start()  # blocks here until both spiders are done
+    try:
+        process.start()  # blocks here until both spiders are done
+    except KeyboardInterrupt:
+        logger.info('Crawler interrupted by user.')

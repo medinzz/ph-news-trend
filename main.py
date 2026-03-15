@@ -9,7 +9,7 @@ import sys
 from datetime import datetime, timedelta
 
 from news.apis import get_all_articles
-from news.crawler import refresh_news_articles
+from news.crawler import refresh_news_articles, debug_article
 from config import get_storage_config, print_config, DEFAULT_DAYS_BACK
 from util.storage_backend import get_storage_backend
 from util.tools import setup_logger
@@ -103,7 +103,7 @@ def main():
     parser.add_argument(
         '--backend',
         type=str,
-        choices=['sqlite', 'duckdb', 'motherduck', 'bigquery'],  # motherduck added
+        choices=['sqlite', 'duckdb', 'motherduck', 'bigquery'],
         help='Override storage backend from config.py'
     )
     parser.add_argument(
@@ -125,6 +125,16 @@ def main():
             'Example: --query "SELECT source, COUNT(*) FROM articles_raw GROUP BY source"'
         )
     )
+    parser.add_argument(
+        '--debug-url',
+        type=str,
+        metavar='URL',
+        help=(
+            'Fetch a single article URL and run all extractors on it. '
+            'No DB writes. Great for testing title/author/content selectors. '
+            'Example: --debug-url "https://newsinfo.inquirer.net/12345678/some-slug"'
+        )
+    )
 
     args = parser.parse_args()
 
@@ -142,6 +152,11 @@ def main():
     # ── --query ─────────────────────────────────────────────────────────────
     if args.query:
         run_query(args.query, config)
+        return
+
+    # ── --debug-url ─────────────────────────────────────────────────────────
+    if args.debug_url:
+        debug_article(args.debug_url)
         return
 
     # ── --use-crawler ───────────────────────────────────────────────────────
@@ -169,6 +184,9 @@ def main():
                 'POP',
                 'TECHNOLOGY',
                 'SPORTS',
+                'CEBUDAILYNEWS',
+                'REGIONS',
+                'USA and Canada'
             ]
         )
 
