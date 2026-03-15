@@ -102,7 +102,10 @@ class InquirerLinkSpider(scrapy.Spider):
                 except Exception as e:
                     logger.warning(f'Skipping unparseable URL {link}: {e}')
                     continue
-
+                
+                if 'lotto' in url_meta['slug']:
+                    continue
+                
                 if url_meta['subdomain'] == 'cebudailynews' and 'daily-gospel' in url_meta['slug']:
                     continue
 
