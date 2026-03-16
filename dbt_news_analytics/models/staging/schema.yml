@@ -2,17 +2,36 @@ version: 2
 
 sources:
   - name: ph_news_raw
-    database: complete-trees-452014-g4
-    schema: ph_news_raw
+    database: ph_news      # MotherDuck database name
+    schema: main           # articles_raw lives in the main schema
     tables:
       - name: articles_raw
         description: Raw news articles from scraper
 
 models:
-  - name: articles
+  - name: stg_articles
     description: Staged articles with basic cleaning
     columns:
       - name: id
         description: Unique article identifier
         tests:
           - unique
+          - not_null
+      - name: source
+        description: News source (inquirer, abs-cbn, etc.)
+      - name: url
+        description: Article URL
+      - name: title
+        description: Article title
+      - name: category
+        description: Article category
+      - name: author
+        description: Article author
+      - name: date
+        description: Publication date
+      - name: publish_time
+        description: Publication timestamp
+      - name: content
+        description: Article content in markdown
+      - name: tags
+        description: List of tags split from comma-separated string

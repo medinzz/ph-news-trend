@@ -1,6 +1,5 @@
 name: 'dbt_news_analytics'
 version: '1.0.0'
-config-version: 2
 
 # Profile to use (defined in profiles.yml)
 profile: 'dbt_news_analytics'
@@ -25,12 +24,12 @@ models:
     staging:
       +materialized: view
       +schema: staging
-    
+
     # Intermediate models (cleaned → enriched)
     intermediate:
       +materialized: view
       +schema: intermediate
-    
+
     # Mart models (enriched → analytics-ready)
     marts:
       +materialized: table
