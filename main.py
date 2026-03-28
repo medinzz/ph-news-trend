@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 
 from news.apis import get_all_articles
 from news.crawler import refresh_news_articles, debug_article
+from util.backup import backup_to_local
 from config import get_storage_config, print_config, DEFAULT_DAYS_BACK
 from util.storage_backend import get_storage_backend
 from util.tools import setup_logger
@@ -135,6 +136,15 @@ def main():
             'Example: --debug-url "https://newsinfo.inquirer.net/12345678/some-slug"'
         )
     )
+    parser.add_argument(
+        '--backup',
+        action='store_true',
+        help=(
+            'Incrementally back up data from MotherDuck to your local DuckDB file. '
+            'Uses DUCKDB_DB_PATH from your .env as the local target. '
+            'Safe to re-run — skips records already present locally.'
+        )
+    )
 
     args = parser.parse_args()
 
@@ -157,6 +167,11 @@ def main():
     # ── --debug-url ─────────────────────────────────────────────────────────
     if args.debug_url:
         debug_article(args.debug_url)
+        return
+
+    # ── --backup ─────────────────────────────────────────────────────────────
+    if args.backup:
+        backup_to_local()
         return
 
     # ── --use-crawler ───────────────────────────────────────────────────────
