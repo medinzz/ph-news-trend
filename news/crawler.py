@@ -102,10 +102,10 @@ class InquirerLinkSpider(scrapy.Spider):
                 except Exception as e:
                     logger.warning(f'Skipping unparseable URL {link}: {e}')
                     continue
-                
+
                 if 'lotto' in url_meta['slug']:
                     continue
-                
+
                 if url_meta['subdomain'] == 'cebudailynews' and 'daily-gospel' in url_meta['slug']:
                     continue
 
@@ -294,6 +294,39 @@ class InquirerArticleSpider(scrapy.Spider):
             return publish_time
 
 
+# ── PHASE 3: Re-crawl unextracted articles ────────────────────────────────────
+
+class InquirerResolveSpider(InquirerArticleSpider):
+    """
+    Re-crawls articles where both title and content failed to extract.
+    Uses upsert_record() to overwrite the bad values with fresh extractions.
+
+    This spider is driven by a custom URL list passed in at init time
+    rather than reading from get_pending_articles() — so it targets
+    exactly the rows you want without touching anything else.
+    """
+    name = 'inquirer_resolve'
+
+    def __init__(self, rows: list[dict], **kwargs):
+        # Bypass InquirerArticleSpider.__init__ DB setup — we handle it here
+        scrapy.Spider.__init__(self, **kwargs)
+        self.db = get_storage_backend(backend_type=STORAGE_BACKEND)
+        self.rows = rows
+
+    def start_requests(self):
+        logger.info(f'Resolve: {len(self.rows)} unextracted articles to re-crawl.')
+        for row in self.rows:
+            yield scrapy.Request(
+                url=row['url'],
+                callback=self.parse_article_details,
+                meta={
+                    'category': row['category'],
+                    'current_date': row['date'],
+                    'use_stealthy': True,
+                }
+            )
+
+
 # ── DEBUG UTILITY ─────────────────────────────────────────────────────────────
 
 def debug_article(url: str) -> dict:
@@ -433,6 +466,48 @@ def populate_articles():
     """Phase 2 — fetch each pending article page and fill in the stub records."""
     process = CrawlerProcess(settings=_base_settings())
     process.crawl(InquirerArticleSpider)
+    try:
+        process.start()
+    except KeyboardInterrupt:
+        logger.info('Crawler interrupted by user.')
+
+
+def resolve_unextracted_articles():
+    """
+    Re-crawl articles where both title AND content failed to extract.
+    Fetches the target rows from the DB, then runs InquirerResolveSpider
+    which overwrites the bad values via upsert_record().
+    """
+    table_name = os.getenv('TABLE_NAME', 'articles_raw')
+
+    db = get_storage_backend(backend_type=STORAGE_BACKEND)
+    rows = db.fetch_all(f'''
+        SELECT
+            id,
+            url,
+            category,
+            CAST(date AS VARCHAR) AS date
+        FROM {table_name}
+        WHERE
+            LOWER(title)   LIKE '%no title%'
+            AND LOWER(content) LIKE '%cannot extract article%'
+    ''')
+    db.close()
+
+    if not rows:
+        logger.info('No unextracted articles found — nothing to resolve.')
+        return
+
+    # Convert to list of dicts for the spider
+    pending = [
+        {'id': row[0], 'url': row[1], 'category': row[2], 'date': row[3]}
+        for row in rows
+    ]
+
+    logger.info(f'Resolve: found {len(pending)} articles to re-crawl.')
+
+    process = CrawlerProcess(settings=_base_settings())
+    process.crawl(InquirerResolveSpider, rows=pending)
     try:
         process.start()
     except KeyboardInterrupt:

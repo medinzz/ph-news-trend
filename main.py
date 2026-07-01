@@ -9,7 +9,7 @@ import sys
 from datetime import datetime, timedelta
 
 from news.apis import get_all_articles
-from news.crawler import refresh_news_articles, debug_article
+from news.crawler import refresh_news_articles, debug_article, resolve_unextracted_articles
 from util.backup import backup_to_local
 from config import get_storage_config, print_config, DEFAULT_DAYS_BACK
 from util.storage_backend import get_storage_backend
@@ -145,6 +145,15 @@ def main():
             'Safe to re-run — skips records already present locally.'
         )
     )
+    parser.add_argument(
+        '--resolve-unextracted',
+        action='store_true',
+        help=(
+            'Re-crawl articles where both title and content failed to extract. '
+            'Targets rows where title LIKE no title AND content LIKE cannot extract article. '
+            'Overwrites bad values with fresh extractions — safe to re-run.'
+        )
+    )
 
     args = parser.parse_args()
 
@@ -172,6 +181,11 @@ def main():
     # ── --backup ─────────────────────────────────────────────────────────────
     if args.backup:
         backup_to_local()
+        return
+
+    # ── --resolve-unextracted ─────────────────────────────────────────────────
+    if args.resolve_unextracted:
+        resolve_unextracted_articles()
         return
 
     # ── --use-crawler ───────────────────────────────────────────────────────
@@ -204,6 +218,7 @@ def main():
                 'USA and Canada'
             ]
         )
+        return
 
     # ── Default: run API scrapers ───────────────────────────────────────────
     if args.start_date:
