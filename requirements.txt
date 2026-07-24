@@ -19,7 +19,7 @@ duckdb==1.4.4
 
 # HTTP / stealth middleware
 aiohttp==3.13.3
-curl_cffi==0.14.0
+curl_cffi==0.15.0
 camoufox==0.4.11
 playwright==1.60.0
 scrapling==0.4
@@ -42,3 +42,6 @@ google-cloud-core==2.5.0
 googleapis-common-protos==1.72.0
 google-auth==2.47.0
 pyarrow==22.0.0
+
+# financial data
+yfinance==1.5.2
