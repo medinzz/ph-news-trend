@@ -21,6 +21,7 @@ duckdb==1.4.4
 aiohttp==3.13.3
 curl_cffi==0.14.0
 camoufox==0.4.11
+playwright==1.60.0
 scrapling==0.4
 browserforge==1.2.4
 requests==2.32.5
