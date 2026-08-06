@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-# Install system dependencies required by lxml, curl_cffi, and camoufox
+# Install system dependencies required by lxml, curl_cffi, and camoufox (Firefox runtime)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     libssl-dev \
     curl \
-    # GTK3 and Firefox runtime dependencies for camoufox
+    # GTK3 and Firefox runtime dependencies for Camoufox
     libgtk-3-0 \
     libdbus-glib-1-2 \
     libxt6 \
@@ -33,18 +33,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install Python dependencies first (cached layer unless requirements change)
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project source
+# CRITICAL FIX: Pre-download Camoufox browser binary and fingerprint data into the image.
+# Prevents GitHub Actions from timing out while fetching browser binaries on container launch.
+RUN python -m camoufox fetch
+
+# Copy project source code
 COPY . .
 
-# MotherDuck token and table config are injected at runtime via environment
-# variables — never baked into the image.
-# ENV MOTHERDUCK_TOKEN is set by GitHub Actions secrets at run time.
-# ENV TABLE_NAME is set by GitHub Actions secrets at run time.
-# ENV STORAGE_BACKEND defaults to motherduck.
+# Environment variables
 ENV STORAGE_BACKEND=motherduck
 
 ENTRYPOINT ["python", "main.py", "--use-crawler"]
