@@ -146,6 +146,21 @@ class InquirerArticleSpider(scrapy.Spider):
     name = 'inquirer_articles'
     allowed_domains = ['inquirer.net']
 
+    # OPTIMIZATION: Override base settings specifically for resolution speed
+    custom_settings = {
+        'DOWNLOADER_MIDDLEWARES': {
+            'news.middlewares.stealthy_middleware.CloudflareBypassMiddleware': 543,
+            'scrapy.downloadermiddlewares.retry.RetryMiddleware': 500,
+        },
+        'RETRY_HTTP_CODES': [429, 500, 502, 504], # Handled by RetryMiddleware; 403/503 go to Camoufox
+        'RETRY_TIMES': 2,
+        'CONCURRENT_REQUESTS': 8,
+        'CONCURRENT_REQUESTS_PER_DOMAIN': 6,
+        'DOWNLOAD_DELAY': 0.25,
+        'AUTOTHROTTLE_ENABLED': False,
+    }
+
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.db = get_storage_backend(backend_type=STORAGE_BACKEND)
@@ -306,6 +321,20 @@ class InquirerResolveSpider(InquirerArticleSpider):
     exactly the rows you want without touching anything else.
     """
     name = 'inquirer_resolve'
+
+    # OPTIMIZATION: Override base settings specifically for resolution speed
+    custom_settings = {
+        'DOWNLOADER_MIDDLEWARES': {
+            'news.middlewares.stealthy_middleware.CloudflareBypassMiddleware': 543,
+            'scrapy.downloadermiddlewares.retry.RetryMiddleware': 500,
+        },
+        'RETRY_HTTP_CODES': [429, 500, 502, 504], # Handled by RetryMiddleware; 403/503 go to Camoufox
+        'RETRY_TIMES': 2,
+        'CONCURRENT_REQUESTS': 8,
+        'CONCURRENT_REQUESTS_PER_DOMAIN': 6,
+        'DOWNLOAD_DELAY': 0.25,
+        'AUTOTHROTTLE_ENABLED': False,
+    }
 
     def __init__(self, rows: list[dict], **kwargs):
         # Bypass InquirerArticleSpider.__init__ DB setup — we handle it here

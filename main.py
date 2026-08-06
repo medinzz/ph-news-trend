@@ -195,7 +195,7 @@ def main():
         # When run via GitHub Actions, CRAWL_START_DATE and CRAWL_END_DATE are
         # injected as environment variables by the workflow. When run locally,
         # these fall back to the defaults below.
-        start_date = os.getenv('CRAWL_START_DATE', '2026-01-01')
+        start_date = os.getenv('CRAWL_START_DATE', '2026-07-01')
         end_date   = os.getenv('CRAWL_END_DATE',   datetime.today().strftime('%Y-%m-%d'))
 
         logger.info(f"Crawler date range: {start_date} → {end_date}")

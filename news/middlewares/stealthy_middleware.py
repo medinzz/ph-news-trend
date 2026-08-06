@@ -4,11 +4,12 @@ import sys
 import concurrent.futures
 import random
 from scrapy.http import HtmlResponse
+from camoufox.async_api import AsyncCamoufox
 
 logger = logging.getLogger(__name__)
 
 # One shared executor — Camoufox is only launched when actually needed
-_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 # Subdomains confirmed to be behind Cloudflare — skip fast path entirely for these
 _CF_PROTECTED_SUBDOMAINS = {'bandera', 'business', 'opinion', 'globalnation', 'usa'}
@@ -60,7 +61,6 @@ def _is_cloudflare_blocked(response) -> bool:
 # ─── Camoufox fallback ────────────────────────────────────────────────────────
 
 async def _async_fetch_camoufox(url: str) -> tuple[str, int]:
-    from camoufox.async_api import AsyncCamoufox
 
     async with AsyncCamoufox(
         headless=True,
@@ -68,14 +68,34 @@ async def _async_fetch_camoufox(url: str) -> tuple[str, int]:
         i_know_what_im_doing=True
     ) as browser:
         page = await browser.new_page()
-        response = await page.goto(url, timeout=6000)
-        status = response.status if response else 0
+
+        # OPTIMIZATION 1: Block heavy media & ad resources to speed up loads by 3-5x
+        async def _block_heavy_resources(route):
+            if route.request.resource_type in ["image", "media", "font", "stylesheet"]:
+                await route.abort()
+            else:
+                await route.continue_()
+
+        await page.route("**/*", _block_heavy_resources)
+
+        # OPTIMIZATION 2: Increase navigation timeout to avoid abrupt driver disconnects
+        try:
+            response = await page.goto(url, timeout=15000, wait_until="domcontentloaded")
+            status = response.status if response else 0
+        except Exception as e:
+            logger.warning(f"[Camoufox] page.goto warning for {url}: {e}")
+            status = 0
 
         # Solve Cloudflare Turnstile if present
-        for _ in range(15):
-            title = await page.title()
+        for _ in range(10):
+            try:
+                title = await page.title()
+            except Exception:
+                break
+
             if 'just a moment' not in title.lower() and 'attention required' not in title.lower():
                 break
+
             for frame in page.frames:
                 if 'challenges.cloudflare.com' in frame.url:
                     try:
@@ -86,21 +106,16 @@ async def _async_fetch_camoufox(url: str) -> tuple[str, int]:
                                 bbox['x'] + bbox['width'] / 9,
                                 bbox['y'] + bbox['height'] / 2,
                             )
-                            await asyncio.sleep(3)
+                            await asyncio.sleep(2)
                     except Exception:
                         pass
             await asyncio.sleep(1)
 
-        # FIX: Use 'domcontentloaded' instead of 'networkidle'.
-        # Inquirer pages have too many persistent ad/tracker requests so they
-        # never reach networkidle, causing the 15000ms timeout errors you saw.
-        # domcontentloaded fires as soon as the HTML is parsed — all we need.
         try:
-            await page.wait_for_load_state('domcontentloaded', timeout=10000)
+            html = await page.content()
         except Exception:
-            pass  # If even this times out, we still grab whatever HTML is available
+            html = ""
 
-        html = await page.content()
         return html, status
 
 
@@ -114,65 +129,41 @@ def _fetch_camoufox_in_thread(url: str) -> tuple[str, int]:
 
 class CloudflareBypassMiddleware:
     """
-    Smart two-path middleware:
-      1. Fast path  — plain requests.get(), handles non-CF subdomains in <1s
-      2. Slow path  — Camoufox headless browser, for CF-protected subdomains
-                      or when fast path detects a challenge page
-
-    Known CF-protected subdomains are routed directly to Camoufox to avoid
-    the wasted fast-path attempt + fallback round-trip.
-
-    Only activates for Scrapy requests with meta flag `use_stealthy: True`.
+    Reactive Middleware:
+    Allows Scrapy to fetch pages via fast native downloader.
+    Intercepts responses and triggers Camoufox ONLY when Cloudflare blocks
+    a request with a 403, 503, or challenge page.
     """
 
-    def process_request(self, request):
-        if not request.meta.get('use_stealthy'):
-            return None
+    def process_response(self, request, response, spider):
+        # 1. Check if response is normal (200 OK and no challenge text)
+        is_cf_blocked = response.status in (403, 503) or 'just a moment' in response.text[:2000].lower()
+        
+        if not is_cf_blocked:
+            return response
 
         url = request.url
-        subdomain = _get_subdomain(url)
+        logger.warning(f'[CF Block] Status {response.status} on {url}. Triggering Camoufox fallback...')
 
-        # Skip fast path for known CF-protected subdomains
-        if subdomain not in _CF_PROTECTED_SUBDOMAINS:
-            headers = {**_BASE_HEADERS, 'User-Agent': random.choice(_USER_AGENTS)}
-            try:
-                import requests as req_lib
-                resp = req_lib.get(url, headers=headers, timeout=15, allow_redirects=True)
-
-                if not _is_cloudflare_blocked(resp):
-                    logger.debug(f'[FastPath] OK {resp.status_code} {url}')
-                    return HtmlResponse(
-                        url=resp.url,
-                        status=resp.status_code,
-                        body=resp.content,
-                        encoding=resp.encoding or 'utf-8',
-                        request=request,
-                    )
-                else:
-                    logger.warning(f'[FastPath] CF detected on {url}, adding to CF list and falling back...')
-                    _CF_PROTECTED_SUBDOMAINS.add(subdomain)  # remember for future requests
-
-            except Exception as e:
-                logger.warning(f'[FastPath] Failed for {url}: {e}, falling back to Camoufox...')
-
-        else:
-            logger.debug(f'[Camoufox] Known CF subdomain "{subdomain}", skipping fast path for {url}')
-
-        # ── Camoufox slow path ────────────────────────────────────────────────
+        # 2. Escalate ONLY blocked requests to Camoufox
         try:
             future = _executor.submit(_fetch_camoufox_in_thread, url)
             html, status = future.result(timeout=90)
-            logger.info(f'[Camoufox] Fetched {url} with status {status}')
-            return HtmlResponse(
-                url=url,
-                status=200,
-                body=html.encode('utf-8'),
-                encoding='utf-8',
-                request=request,
-            )
+            
+            if html and 'just a moment' not in html[:2000].lower():
+                logger.info(f'[Camoufox] Bypassed Cloudflare for {url}')
+                return HtmlResponse(
+                    url=url,
+                    status=200,
+                    body=html.encode('utf-8'),
+                    encoding='utf-8',
+                    request=request,
+                )
+            else:
+                logger.error(f'[Camoufox] Challenge remained unsolved for {url}')
         except concurrent.futures.TimeoutError:
             logger.error(f'[Camoufox] Timed out for {url}')
         except Exception as e:
             logger.error(f'[Camoufox] Failed for {url}: {e}')
 
-        return None
+        return response
