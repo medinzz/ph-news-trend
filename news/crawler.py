@@ -207,6 +207,15 @@ class InquirerArticleSpider(scrapy.Spider):
 
     def _extract_title(self, response, url_metadata) -> str:
         try:
+            # 1. Prioritize meta tags (og:title, then standard title)
+            meta_title = (
+                response.css('meta[property="og:title"]::attr(content)').get()
+                or response.css('title::text').get()
+            )
+            if meta_title:
+                return meta_title.strip()
+
+            # 2. Fallback to CSS selectors per subdomain
             match url_metadata['subdomain']:
                 case 'lifestyle':
                     return response.css('h1.elementor-heading-title::text').get(default='No title')
@@ -214,7 +223,8 @@ class InquirerArticleSpider(scrapy.Spider):
                     return response.css('div.single-post-banner-inner > h1::text').get(default='No title')
                 case 'cebudailynews':
                     return (
-                        response.css('#landing-headline h1::text').get()
+                        response.css('#b-masthead .bmhead-headline h1::text').get()
+                        or response.css('#landing-headline h1::text').get()
                         or response.css('#art-hgroup h1::text').get()
                         or 'No title'
                     )
@@ -229,6 +239,16 @@ class InquirerArticleSpider(scrapy.Spider):
 
     def _extract_author(self, response, url_metadata) -> str:
         try:
+            # 1. Prioritize meta tags (meta name="author", twitter:data1, or article:author)
+            meta_author = (
+                response.css('meta[name="author"]::attr(content)').get()
+                or response.css('meta[name="twitter:data1"]::attr(content)').get()
+                or response.css('meta[property="article:author"]::attr(content)').get()
+            )
+            if meta_author:
+                return meta_author.strip()
+
+            # 2. Fallback to CSS selectors per subdomain
             match url_metadata['subdomain']:
                 case 'lifestyle':
                     return response.css(
@@ -239,7 +259,8 @@ class InquirerArticleSpider(scrapy.Spider):
                     return response.css("ul.blog-meta-list a[href*='/byline/']::text").get(default='No author')
                 case 'cebudailynews':
                     return (
-                        response.css('#m-pd2 span::text').re_first(r'By:\s*(.+)')
+                        response.css('.bmhead-headline .bpdate a[href*="/byline/"]::text').get()
+                        or response.css('#m-pd2 span::text').re_first(r'By:\s*(.+)')
                         or response.css('.art-byline a::text').get()
                         or 'No author'
                     )
@@ -289,7 +310,11 @@ class InquirerArticleSpider(scrapy.Spider):
     def _extract_publish_time(self, response) -> datetime | None:
         publish_time = None
         try:
-            meta_tags = response.css('meta[property="article:published_time"]::attr(content)').getall()
+            # 1. Prioritize OpenGraph / Meta tags
+            meta_tags = (
+                response.css('meta[property="article:published_time"]::attr(content)').getall()
+                or response.css('meta[name="parsely-pub-date"]::attr(content)').getall()
+            )
             for content in meta_tags:
                 try:
                     if ',' in content and content.split(',')[0].strip().isalpha():
@@ -299,9 +324,20 @@ class InquirerArticleSpider(scrapy.Spider):
                         publish_time = datetime.strptime(cleaned, "%a, %d %b %Y %H:%M:%S")
                     else:
                         publish_time = datetime.fromisoformat(content)
-                    break
+                    return publish_time
                 except Exception:
                     continue
+
+            # 2. Fallback to parsing page body CSS elements (.bpdate)
+            bpdate_text = response.css('.bmhead-headline .bpdate::text').getall()
+            if bpdate_text:
+                raw_text = ' '.join(bpdate_text).replace('-', '').strip()
+                if raw_text:
+                    try:
+                        publish_time = datetime.strptime(raw_text, "%B %d, %Y")
+                        return publish_time
+                    except ValueError:
+                        pass
         except Exception as e:
             logger.error(f'Error extracting publish time: {e}')
             logger.debug(traceback.format_exc())
@@ -518,8 +554,8 @@ def resolve_unextracted_articles():
             CAST(date AS VARCHAR) AS date
         FROM {table_name}
         WHERE
-            LOWER(title)   LIKE '%no title%'
-            AND LOWER(content) LIKE '%cannot extract article%'
+            LOWER(title) LIKE '%no title%'
+            OR LOWER(content) LIKE '%cannot extract article%'
     ''')
     db.close()
 
