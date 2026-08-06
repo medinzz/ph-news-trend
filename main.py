@@ -218,7 +218,6 @@ def main():
                 'USA and Canada'
             ]
         )
-        return
 
     # ── Default: run API scrapers ───────────────────────────────────────────
     if args.start_date:

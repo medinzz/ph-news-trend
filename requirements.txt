@@ -37,11 +37,11 @@ pyarrow==22.0.0
 python-dateutil==2.9.0.post0
 
 # Google BigQuery
-# google-cloud-bigquery==3.40.0
-# google-cloud-core==2.5.0
-# googleapis-common-protos==1.72.0
-# google-auth==2.47.0
-# pyarrow==22.0.0
+google-cloud-bigquery==3.40.0
+google-cloud-core==2.5.0
+googleapis-common-protos==1.72.0
+google-auth==2.47.0
+pyarrow==22.0.0
 
 # Financial data
 yfinance==1.5.2
