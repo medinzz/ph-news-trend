@@ -6,7 +6,7 @@ on:
   schedule:
     - cron: '0 1 * * *'
 
-  # ── Manual: trigger from GitHub UI with optional date override ────────────
+  # ── Manual: trigger from GitHub UI with optional date & resolve overrides ─
   workflow_dispatch:
     inputs:
       start_date:
@@ -17,6 +17,11 @@ on:
         description: 'End date (YYYY-MM-DD). Leave blank to use today.'
         required: false
         default: ''
+      resolve_unextracted:
+        description: 'Re-crawl unextracted/failed articles after main crawl'
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   crawl:
@@ -45,7 +50,9 @@ jobs:
             libpangocairo-1.0-0 libatk1.0-0 libcairo-gobject2 libgdk-pixbuf-2.0-0
 
       - name: Install Python dependencies
-        run: pip install --no-cache-dir -r requirements.txt
+        run: |
+          pip install --no-cache-dir -r requirements.txt
+          python -m camoufox fetch
 
       - name: Resolve crawl dates
         id: dates
@@ -72,7 +79,13 @@ jobs:
           STORAGE_BACKEND:  motherduck
           CRAWL_START_DATE: ${{ steps.dates.outputs.start_date }}
           CRAWL_END_DATE:   ${{ steps.dates.outputs.end_date }}
-        run: python main.py --use-crawler
+        run: |
+          CMD="python main.py --use-crawler"
+          if [ "${{ github.event.inputs.resolve_unextracted }}" == "true" ]; then
+            echo "🔧 Flag --resolve-unextracted enabled"
+            CMD="$CMD --resolve-unextracted"
+          fi
+          $CMD
 
       - name: Report outcome
         if: always()
