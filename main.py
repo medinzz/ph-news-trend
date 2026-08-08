@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 from news.apis import get_all_articles
 from news.crawler import refresh_news_articles, debug_article, resolve_unextracted_articles
-from util.backup import backup_to_local
+from util.backup import backup_to_local, restore_to_motherduck
 from config import get_storage_config, print_config, DEFAULT_DAYS_BACK
 from util.storage_backend import get_storage_backend
 from util.tools import setup_logger
@@ -146,6 +146,15 @@ def main():
         )
     )
     parser.add_argument(
+        '--restore',
+        action='store_true',
+        help=(
+            'Incrementally restore data from your local DuckDB file up to MotherDuck. '
+            'Uses DUCKDB_DB_PATH from your .env as the local source. '
+            'Safe to re-run — skips records already present in MotherDuck.'
+        )
+    )
+    parser.add_argument(
         '--resolve-unextracted',
         action='store_true',
         help=(
@@ -183,6 +192,11 @@ def main():
         backup_to_local()
         return
 
+    # ── --restore ────────────────────────────────────────────────────────────
+    if args.restore:
+        restore_to_motherduck()
+        return
+
     # ── --resolve-unextracted ─────────────────────────────────────────────────
     if args.resolve_unextracted:
         resolve_unextracted_articles()
@@ -195,7 +209,7 @@ def main():
         # When run via GitHub Actions, CRAWL_START_DATE and CRAWL_END_DATE are
         # injected as environment variables by the workflow. When run locally,
         # these fall back to the defaults below.
-        start_date = os.getenv('CRAWL_START_DATE', '2026-07-01')
+        start_date = os.getenv('CRAWL_START_DATE', '2026-01-01')
         end_date   = os.getenv('CRAWL_END_DATE',   datetime.today().strftime('%Y-%m-%d'))
 
         logger.info(f"Crawler date range: {start_date} → {end_date}")
