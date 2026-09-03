@@ -1,10 +1,14 @@
+import html
+import html2text
+from bs4 import BeautifulSoup
+import re
+import logging
+
 ################### LOGGER ###################
 def setup_logger(log_file="app.log"):
     """
     Set up and return a logger that writes logs to both a file and the console.
     """
-    import logging
-
 
     logger = logging.getLogger("custom_logger")
     logger.setLevel(logging.DEBUG)
@@ -56,11 +60,7 @@ def html_to_markdown(
         unwanted_ids: list[str] = [],
         unwanted_classes: list[str] = [],
         unwanted_tags: list[str] = []) -> str:
-    
-    import html
-    import html2text
-    from bs4 import BeautifulSoup
-    import re
+
     
     # Unescape HTML entities
     unescaped_html = html.unescape(html_content)  # Now using html_content parameter

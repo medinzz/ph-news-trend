@@ -6,7 +6,11 @@ Edit config.py to change storage backend and other settings.
 import argparse
 import signal
 import sys
+import traceback
+import os
+import pandas as pd
 from datetime import datetime, timedelta
+
 
 from news.apis import get_all_articles
 from news.crawler import refresh_news_articles, debug_article, resolve_unextracted_articles
@@ -62,7 +66,6 @@ def run_query(query: str, config: dict) -> None:
             return
 
         # DuckDB/MotherDuck/BigQuery return a DataFrame; SQLite returns a list of tuples
-        import pandas as pd
         if isinstance(results, pd.DataFrame):
             if results.empty:
                 print("Query returned 0 rows.")
@@ -204,8 +207,6 @@ def main():
 
     # ── --use-crawler ───────────────────────────────────────────────────────
     if args.use_crawler:
-        import os
-
         # When run via GitHub Actions, CRAWL_START_DATE and CRAWL_END_DATE are
         # injected as environment variables by the workflow. When run locally,
         # these fall back to the defaults below.
@@ -262,7 +263,6 @@ def main():
         sys.exit(0)
     except Exception as e:
         logger.error(f"\nError during scraping: {e}")
-        import traceback
         logger.error(traceback.format_exc())
         sys.exit(1)
 

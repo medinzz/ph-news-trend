@@ -2,6 +2,7 @@ import traceback
 import asyncio
 import aiohttp
 import sys
+import html
 
 from datetime import datetime
 from urllib.parse import urlparse
@@ -98,7 +99,7 @@ async def abscbn_articles(start_date: str) -> None:
                     'source': article.get('source'),
                     'url': 'https://www.abs-cbn.com/' + article.get('slugline_url'),
                     'category': article.get('category'),
-                    'title': article.get('title'),
+                    'title': html.unescape(article.get('title')),
                     'author': article.get('author'),
                     'date': article.get('date'),
                     'publish_time': article.get('publish_time'),
@@ -226,7 +227,7 @@ async def manila_bulletin_articles(start_date: str, section_ids: list = None) ->
                                 'source': 'manila_bulletin',
                                 'url': article_data.get('link', ''),
                                 'category': article_data.get('section_name', 'Unknown'),
-                                'title': article_data.get('title', 'No title found'),
+                                'title': html.unescape(article_data.get('title', 'No title found')),
                                 'author': article_data.get('author_name', 'Unknown'),
                                 'date': article_data.get('publish_time', '').split(' ')[0],
                                 'publish_time': article_data.get('publish_time', ''),
@@ -299,7 +300,7 @@ async def rappler_articles(start_date: str) -> None:
                         'source': 'rappler',
                         'url': article.get('link'),
                         'category': urlparse(article.get('link')).path.split('/')[1],
-                        'title': article.get('title', {}).get('rendered', 'No title found'),
+                        'title': html.unescape(article.get('title', {}).get('rendered', 'No title found')),
                         'author': None,
                         'date': article.get('date').split('T')[0],
                         'publish_time': datetime.strptime(
