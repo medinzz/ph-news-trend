@@ -7,6 +7,8 @@ app.log
 
 *.db
 *.sqlite3
+*.duckdb
+
 
 util/const.py
 .env
