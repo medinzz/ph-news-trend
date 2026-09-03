@@ -94,7 +94,7 @@ async def abscbn_articles(start_date: str) -> None:
                     article['data'].get('body_html') if article.get('data') else 'No content found',
                     unwanted_tags=['img', 'figure', 'iframe']
                 )
-                storage.insert_record({
+                storage.upsert_record({
                     'id': article.get('id'),
                     'source': article.get('source'),
                     'url': 'https://www.abs-cbn.com/' + article.get('slugline_url'),
@@ -222,7 +222,7 @@ async def manila_bulletin_articles(start_date: str, section_ids: list = None) ->
                                 t.strip() for t in tags_raw.split(',') if t.strip()
                             ) if isinstance(tags_raw, str) else ''
 
-                            storage.insert_record({
+                            storage.upsert_record({
                                 'id': article_data.get('cms_article_id'),
                                 'source': 'manila_bulletin',
                                 'url': article_data.get('link', ''),
@@ -295,7 +295,7 @@ async def rappler_articles(start_date: str) -> None:
                     ]
                     tags = await asyncio.gather(*tags_tasks)
 
-                    storage.insert_record({
+                    storage.upsert_record({
                         'id': article_id,
                         'source': 'rappler',
                         'url': article.get('link'),

@@ -241,7 +241,7 @@ class SQLiteBackend(StorageBackend):
     def record_exists(self, record_id: str) -> bool:
         try:
             self.cursor.execute(
-                f'SELECT 1 FROM {self.table_name} WHERE id = ? LIMIT 1',
+                f'SELECT 1 FROM {self.table_name} WHERE id = ? AND title IS NOT NULL AND content IS NOT NULL LIMIT 1',
                 (record_id,)
             )
             return self.cursor.fetchone() is not None
@@ -465,7 +465,7 @@ class DuckDBBackend(StorageBackend):
     def record_exists(self, record_id: str) -> bool:
         try:
             result = self.conn.execute(
-                f'SELECT 1 FROM {self.table_name} WHERE id = ? LIMIT 1',
+                f'SELECT 1 FROM {self.table_name} WHERE id = ? AND title IS NOT NULL AND content IS NOT NULL LIMIT 1',
                 [record_id]
             ).fetchone()
             return result is not None
@@ -618,7 +618,7 @@ class BigQueryBackend(StorageBackend):
         """Load all existing IDs into memory once to avoid per-record BQ queries."""
         try:
             results = self.client.query(
-                f'SELECT id FROM `{self.table_id}`'
+                f'SELECT id FROM `{self.table_id}` WHERE title IS NOT NULL AND content IS NOT NULL'
             ).result()
             ids = {row.id for row in results}
             logger.info(f'Loaded {len(ids)} existing IDs from BigQuery.')

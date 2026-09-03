@@ -556,6 +556,8 @@ def resolve_unextracted_articles():
         WHERE
             LOWER(title) LIKE '%no title%'
             OR LOWER(content) LIKE '%cannot extract article%'
+            OR title IS NULL
+            OR content IS NULL
     ''')
     db.close()
 

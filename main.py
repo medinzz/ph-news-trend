@@ -8,6 +8,7 @@ import signal
 import sys
 import traceback
 import os
+import html
 import pandas as pd
 from datetime import datetime, timedelta
 
@@ -52,7 +53,7 @@ def run_query(query: str, config: dict) -> None:
     results are printed as a DataFrame. Meant for quick ad-hoc data
     inspection from the CLI without needing a separate DB client.
     """
-    backend_type = config.get('backend_type', 'sqlite')
+    backend_type = config.get('backend_type', 'duckdb')
     kwargs = {k: v for k, v in config.items() if k != 'backend_type'}
 
     logger.info(f"Running query on {backend_type} backend...")
@@ -166,6 +167,15 @@ def main():
             'Overwrites bad values with fresh extractions — safe to re-run.'
         )
     )
+    parser.add_argument(
+        '--resolve-html-entities',
+        action='store_true',
+        help=(
+            'Update Title and Content fields to resolve HTML entities (e.g., &amp; → &). '
+            'Targets rows where title or content contains HTML entities. that are not yet decoded. '
+            'Overwrites bad values with fresh extractions — safe to re-run.'
+        )
+    )
 
     args = parser.parse_args()
 
@@ -205,6 +215,43 @@ def main():
         resolve_unextracted_articles()
         return
 
+    if args.resolve_html_entities:
+        logger.info("Resolving HTML entities in all articles...")
+        storage = get_storage_backend(config['backend_type'], **{k: v for k, v in config.items() if k != 'backend_type'})
+
+
+        logger.info(f"Running query on {config['backend_type']} backend...")
+
+        try:
+            rows = storage.fetch_all(f'''
+                    SELECT 
+                        *
+                    FROM articles_raw 
+                    WHERE title LIKE '%&#%'
+                    OR content LIKE '%&#%'
+                ''')
+            df = pd.DataFrame(rows, columns=[
+                'id',
+                'source',
+                'url',
+                'category',
+                'title',
+                'author',
+                'date',
+                'publish_time',
+                'content',
+                'tags'])
+
+            for idx, item in df.iterrows():
+                item['title'] = html.unescape(item['title'])
+                item['content'] = html.unescape(item['content'])
+                storage.upsert_record(item.to_dict())
+
+        finally:
+            storage.close()
+
+        return
+    
     # ── --use-crawler ───────────────────────────────────────────────────────
     if args.use_crawler:
         # When run via GitHub Actions, CRAWL_START_DATE and CRAWL_END_DATE are
