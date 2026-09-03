@@ -1,5 +1,5 @@
 dbt_news_analytics:
-  target: prod
+  target: dev
   outputs:
     prod:
       type: duckdb
@@ -7,10 +7,8 @@ dbt_news_analytics:
       threads: 4
       extensions:
         - motherduck
-      settings:
-        motherduck_token: "{{ env_var('MOTHERDUCK_TOKEN') }}"
 
     dev:
       type: duckdb
-      path: articles_raw.duckdb  # local DuckDB file for development
+      path: ../articles_raw.duckdb  # local DuckDB file for development
       threads: 4

@@ -2,36 +2,62 @@ version: 2
 
 sources:
   - name: ph_news_raw
-    database: ph_news      # MotherDuck database name
-    schema: main           # articles_raw lives in the main schema
+    description: Raw news articles written by the Scrapy crawler.
+    schema: main       # articles_raw lives in the main schema
     tables:
       - name: articles_raw
-        description: Raw news articles from scraper
+        description: Raw scraped articles from Inquirer, ABS-CBN, Rappler, and Manila Bulletin.
+        columns:
+          - name: id
+            description: Unique article identifier.
+          - name: source
+            description: News source origin (inquirer, abs-cbn, etc.)
+          - name: url
+            description: Full article URL.
+          - name: category
+            description: Article category as listed on the source site.
+          - name: title
+            description: Raw article headline.
+          - name: author
+            description: Article author or byline.
+          - name: date
+            description: Publication date (DATE type).
+          - name: publish_time
+            description: Full publication timestamp (TIMESTAMP type).
+          - name: content
+            description: Article body in HTML, converted to markdown by the pipeline.
+          - name: tags
+            description: Comma-separated tag string from the source site.
 
 models:
   - name: stg_articles
-    description: Staged articles with basic cleaning
+    description: >
+      Staged articles with basic cleaning applied — tags split into a list,
+      content truncated at 'Read Next', and double newlines removed from
+      title and content. Deduped on id.
     columns:
       - name: id
-        description: Unique article identifier
+        description: Unique article identifier. Primary key.
         tests:
           - unique
           - not_null
       - name: source
-        description: News source (inquirer, abs-cbn, etc.)
+        description: News source (inquirer, abs-cbn, rappler, manila_bulletin).
       - name: url
-        description: Article URL
+        description: Full article URL.
       - name: title
-        description: Article title
+        description: Cleaned article headline with double newlines removed.
       - name: category
-        description: Article category
+        description: Article category.
       - name: author
-        description: Article author
+        description: Article author or byline.
       - name: date
-        description: Publication date
+        description: Publication date.
       - name: publish_time
-        description: Publication timestamp
+        description: Full publication timestamp.
       - name: content
-        description: Article content in markdown
+        description: >
+          Cleaned article body — truncated at 'Read Next' to remove
+          cross-article bleed, double newlines replaced with a single space.
       - name: tags
-        description: List of tags split from comma-separated string
+        description: Tags split from comma-separated string into a list.
