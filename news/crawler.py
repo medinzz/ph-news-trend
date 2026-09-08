@@ -109,6 +109,11 @@ class InquirerLinkSpider(scrapy.Spider):
                 if url_meta['subdomain'] == 'cebudailynews' and 'daily-gospel' in url_meta['slug']:
                     continue
 
+
+
+                if url_meta['subdomain'] == 'sports' and url_meta['slug'].startswith('live'):
+                    continue
+
                 article_id = _make_article_id(url_meta)
 
                 # Skip if ID already exists in DB
@@ -285,8 +290,17 @@ class InquirerArticleSpider(scrapy.Spider):
                 'cebudailynews': 'div#article-content',
                 'usa': 'div#TO_target_content',
             }
-            selector = content_selectors.get(url_metadata['subdomain'], 'div#FOR_target_content')
-            return response.css(selector).get(default='Cannot extract article content')
+            subdomain = url_metadata.get('subdomain')
+            primary_selector = content_selectors.get(subdomain, 'div#FOR_target_content')
+
+            # Attempt extraction with primary selector
+            content = response.css(primary_selector).get()
+
+            # Fallback if primary extraction returned nothing
+            if not content:
+                content = response.css('div#nlf-body').get()
+
+            return content if content else 'Cannot extract article content'
         except Exception as e:
             logger.error(f'Error extracting content: {e}')
             logger.debug(traceback.format_exc())
@@ -304,8 +318,7 @@ class InquirerArticleSpider(scrapy.Spider):
         except Exception as e:
             logger.error(f'Error extracting tags: {e} on {url_metadata}')
             logger.debug(traceback.format_exc())
-        finally:
-            return ', '.join(tags)
+        return ', '.join(tags)
 
     def _extract_publish_time(self, response) -> datetime | None:
         publish_time = None
@@ -341,8 +354,8 @@ class InquirerArticleSpider(scrapy.Spider):
         except Exception as e:
             logger.error(f'Error extracting publish time: {e}')
             logger.debug(traceback.format_exc())
-        finally:
-            return publish_time
+        
+        return publish_time
 
 
 # ── PHASE 3: Re-crawl unextracted articles ────────────────────────────────────
