@@ -1,6 +1,7 @@
 -- stg_articles: clean articles_raw
 SELECT
-    * EXCLUDE (title, tags, content),
+    * EXCLUDE (title, tags, content, category),
+    UPPER(TRIM(category)) AS category,
     TRIM(title) AS title,
     STRING_SPLIT(tags, ',') AS tags,
     SPLIT_PART(content, 'Read Next', 1) AS content

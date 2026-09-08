@@ -6,6 +6,7 @@ import html
 
 from datetime import datetime
 from urllib.parse import urlparse
+from bs4 import BeautifulSoup
 
 from util.tools import setup_logger, async_get, html_to_markdown
 from util.storage_backend import get_storage_backend, StorageBackend
@@ -15,6 +16,20 @@ logger = setup_logger()
 
 # Global storage backend - will be set by get_all_articles
 storage: StorageBackend = None
+
+# ── SHARED HEADERS ─────────────────────────────────────────────────────────────
+
+GMA_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:155.0) Gecko/20100101 Firefox/155.0',
+    'Accept': 'application/json, text/javascript, */*; q=0.01',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Origin': 'https://www.gmanetwork.com',
+    'Referer': 'https://www.gmanetwork.com/',
+}
+
+GMA_BASE_URL      = 'https://www.gmanetwork.com/news/'
+GMA_TRACKER_URL   = 'https://data.gmanetwork.com/gno/widgets/grid_reverse_listing/just_in/tracker.gz'
+GMA_LIST_BASE_URL = 'https://data.gmanetwork.com/gno/widgets/grid_reverse_listing/just_in/{count}.gz'
 
 
 async def abscbn_articles(start_date: str) -> None:
@@ -163,7 +178,6 @@ async def manila_bulletin_articles(start_date: str, section_ids: list = None) ->
                         article_datetime = datetime.strptime(publish_time, '%Y-%m-%d %H:%M:%S')
 
                         if article_datetime < start_datetime:
-                            # Articles are newest-first — everything after this is older
                             reached_old_articles = True
                             break
 
@@ -173,8 +187,6 @@ async def manila_bulletin_articles(start_date: str, section_ids: list = None) ->
                         logger.info(f'No in-range articles for section {section_id}, page {page}. Stopping.')
                         break
 
-                    # ── Caught-up check: if every article on this page already exists,
-                    #    there's nothing new to fetch — stop this section entirely. ──
                     all_exist = all(
                         storage.record_exists(str(a.get('cms_article_id')))
                         for a in filtered_articles
@@ -186,12 +198,10 @@ async def manila_bulletin_articles(start_date: str, section_ids: list = None) ->
                         )
                         break
 
-                    # ── Fetch detail pages concurrently, skipping known records ──
                     async def fetch_detail(article_summary):
                         cms_id = article_summary.get('cms_article_id')
                         if not cms_id:
                             return None
-                        # Skip expensive detail call if already stored
                         if storage.record_exists(str(cms_id)):
                             logger.debug(f'Skipping existing MB record: {cms_id}')
                             return None
@@ -280,7 +290,6 @@ async def rappler_articles(start_date: str) -> None:
                 for article in articles:
                     article_id = str(article.get('id'))
 
-                    # Skip if already stored
                     if storage.record_exists(article_id):
                         logger.debug(f'Skipping existing Rappler article: {article_id}')
                         continue
@@ -322,6 +331,186 @@ async def rappler_articles(start_date: str) -> None:
                 break
 
 
+async def _gma_fetch_content(session: aiohttp.ClientSession, article_url: str) -> str:
+    """
+    Fetch a single GMA article page and extract the content from div.story_main.
+    Returns the content as markdown, or a fallback string on failure.
+    """
+    try:
+        async with session.get(
+            article_url,
+            headers={**GMA_HEADERS},
+            timeout=aiohttp.ClientTimeout(total=15),
+        ) as response:
+            if response.status != 200:
+                logger.warning(f'GMA content fetch returned {response.status} for {article_url}')
+                return 'Cannot extract article content'
+
+            html_text = await response.text()
+            soup = BeautifulSoup(html_text, 'html.parser')
+            story_div = soup.select_one('div.story_main')
+
+            if not story_div:
+                logger.warning(f'div.story_main not found for {article_url}')
+                return 'Cannot extract article content'
+
+            # Remove unwanted elements inside the content div
+            for tag in story_div.find_all(['script', 'style', 'iframe', 'figure', 'img']):
+                tag.decompose()
+
+            return html_to_markdown(str(story_div), unwanted_tags=['img', 'figure', 'iframe'])
+
+    except Exception as e:
+        logger.error(f'Error fetching GMA content for {article_url}: {e}')
+        return 'Cannot extract article content'
+
+
+async def gma_articles(start_date: str) -> None:
+    """
+    Fetches and stores GMA News articles published since a given start date.
+
+    Flow:
+        1. GET tracker.gz → get current count
+        2. GET {count}.gz → get article batch, parse nested structure
+        3. Filter by publish_timestamp, skip existing IDs
+        4. Decrement count and repeat until reaching articles older than start_date
+        5. For each new article batch, concurrently fetch article pages for content
+    """
+    start_datetime = datetime.strptime(start_date, '%Y-%m-%d')
+
+    async with aiohttp.ClientSession() as session:
+
+        # ── Step 1: Get current count ─────────────────────────────────────
+        try:
+            async with session.get(
+                GMA_TRACKER_URL,
+                headers=GMA_HEADERS,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                tracker_data = await resp.json(content_type=None)
+                current_count = tracker_data.get('count')
+                if not current_count:
+                    logger.error('GMA tracker returned no count. Aborting.')
+                    return
+                logger.info(f'GMA tracker count: {current_count}')
+        except Exception as e:
+            logger.error(f'Failed to fetch GMA tracker: {e}')
+            return
+
+        # ── Step 2: Paginate backwards through article batches ────────────
+        count = current_count
+        reached_old = False
+        total_inserted = 0
+
+        while not reached_old and count > 0:
+            try:
+                list_url = GMA_LIST_BASE_URL.format(count=count)
+                async with session.get(
+                    list_url,
+                    headers=GMA_HEADERS,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning(
+                            f'GMA list returned {resp.status} for count {count}. Stopping.')
+                        break
+                    list_data = await resp.json(content_type=None)
+
+            except Exception as e:
+                logger.error(f'Error fetching GMA list at count {count}: {e}')
+                break
+
+            articles = list_data.get('data', [])
+            if not articles:
+                logger.info(f'GMA: empty batch at count {count}. Stopping.')
+                break
+
+            logger.info(f'GMA: fetched {len(articles)} items at count {count}')
+
+            # ── Step 3: Filter by date and existing IDs ───────────────────
+            new_articles = []
+            for article in articles:
+                try:
+                    publish_dt = datetime.strptime(
+                        article.get('publish_timestamp', ''),
+                        '%Y-%m-%d %H:%M:%S'
+                    )
+                except ValueError:
+                    continue
+
+                # Articles are newest-first — stop when we pass start_date
+                if publish_dt < start_datetime:
+                    logger.info(
+                        f'GMA: reached articles older than {start_date}. Stopping.')
+                    reached_old = True
+                    break
+
+                article_id = f"gma:{article.get('id')}"
+
+                if storage.record_exists(article_id):
+                    logger.debug(f'Skipping existing GMA record: {article_id}')
+                    continue
+
+                new_articles.append({
+                    'id': article_id,
+                    'raw_id': article.get('id'),
+                    'title': html.unescape(article.get('title', 'No title')),
+                    'author': article.get('author', 'No author') or 'No author',
+                    'category': (
+                        article.get('subsection', {}).get('ssec_name')
+                        or article.get('section', {}).get('sec_name')
+                        or 'Unknown'
+                    ),
+                    'url': GMA_BASE_URL + article.get('link', ''),
+                    'date': publish_dt.strftime('%Y-%m-%d'),
+                    'publish_time': publish_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                    'tags': ','.join(
+                        t.strip().replace(' ', '_')
+                        for t in article.get('tags', '').split()
+                        if t.strip()
+                    ),
+                })
+
+            # ── Step 4: Fetch content concurrently for new articles ───────
+            if new_articles:
+                content_tasks = [
+                    _gma_fetch_content(session, a['url'])
+                    for a in new_articles
+                ]
+                contents = await asyncio.gather(*content_tasks)
+
+                inserted = 0
+                for article, content in zip(new_articles, contents):
+                    try:
+                        storage.upsert_record({
+                            'id': article['id'],
+                            'source': 'gma',
+                            'url': article['url'],
+                            'category': article['category'],
+                            'title': article['title'],
+                            'author': article['author'],
+                            'date': article['date'],
+                            'publish_time': article['publish_time'],
+                            'tags': article['tags'],
+                            'cleaned_content': content,
+                        })
+                        inserted += 1
+                    except Exception as e:
+                        logger.error(
+                            f'Error inserting GMA article {article["id"]}: {e}')
+                        logger.error(traceback.format_exc())
+
+                total_inserted += inserted
+                logger.info(
+                    f'GMA: inserted {inserted} articles from count {count}.')
+
+            # ── Step 5: Decrement count for next batch ────────────────────
+            count -= 1
+            await asyncio.sleep(0.3)
+
+        logger.info(f'GMA: completed. Total inserted: {total_inserted}.')
+
+
 async def get_all_articles_async(start_date: str, backend: str = 'sqlite', **backend_kwargs) -> None:
     global storage
 
@@ -335,7 +524,8 @@ async def get_all_articles_async(start_date: str, backend: str = 'sqlite', **bac
         await asyncio.gather(
             abscbn_articles(start_date),
             rappler_articles(start_date),
-            manila_bulletin_articles(start_date)
+            manila_bulletin_articles(start_date),
+            gma_articles(start_date)
         )
     finally:
         storage.close()
